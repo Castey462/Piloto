@@ -1,0 +1,22 @@
+{
+  "name": "Cuaderno de Bitácora",
+  "short_name": "Bitácora",
+  "description": "Diario de viajes compartido para registrar anécdotas y fotos por capítulos.",
+  "start_url": ".",
+  "scope": ".",
+  "id": "cuaderno-de-bitacora",
+  "display": "standalone",
+  "background_color": "#EFE3C6",
+  "theme_color": "#A3402C",
+  "orientation": "portrait",
+  "lang": "es",
+  "icons": [
+    { "src": "icon-120.png", "sizes": "120x120", "type": "image/png" },
+    { "src": "icon-152.png", "sizes": "152x152", "type": "image/png" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
