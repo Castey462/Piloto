@@ -237,9 +237,10 @@
 
   /* ---- Chapter view / scrapbook page ---- */
   .pressing{ opacity:0.55; transform:scale(0.97); transition: opacity .15s ease, transform .15s ease; }
-  .book-card, .chapter-card, .anecdote-card, .polaroid, .chapter-header{
+  .book-card, .chapter-card, .anecdote-card, .polaroid, .chapter-header, .entry{
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action: pan-y;
   }
+  .entry img{ -webkit-touch-callout:none; }
   .delete-warn{ font-family:'Lora'; color:var(--ink-soft); font-size:14.5px; line-height:1.55; margin:12px 0 22px; }
   .delete-btn{ background:var(--stamp-red); color:var(--paper-light); border-color:var(--stamp-red); box-shadow:2px 2px 0 #6b2013; }
   .delete-btn:active{ box-shadow:0 0 0 #6b2013; }
@@ -759,7 +760,7 @@ function startLongPress(e, kind, id){
     if(kind==='book') askDeleteBook(id);
     else if(kind==='chapter-list') askDeleteChapter(id, false);
     else if(kind==='chapter-view') askDeleteChapter(id, true);
-    else if(kind==='entry') askDeleteEntry(id);
+    else if(kind==='entry') askEntryActions(id);
   }, LONG_PRESS_MS);
 }
 function moveLongPress(e){
@@ -871,10 +872,41 @@ async function confirmDeleteChapter(chapterId, fromDetailView){
   }
 }
 
+function askEntryActions(entryId){
+  const chapter = S.currentBook.chapters.find(c=>c.id===S.currentChapterId);
+  const entry = chapter ? chapter.entries.find(e=>e.id===entryId) : null;
+  if(!entry) return;
+  showModal(`
+    <h2>Esta entrada</h2>
+    <div class="btn-row" style="margin:18px 0 4px;">
+      <button class="btn btn-teal" onclick="startEditEntry('${entryId}')">✎ Editar</button>
+      <button class="btn delete-btn" onclick="goToDeleteEntry('${entryId}')">🗑️ Eliminar</button>
+    </div>
+  `);
+}
+function goToDeleteEntry(entryId){
+  closeModal({keepHistory:true});
+  askDeleteEntry(entryId);
+}
+function startEditEntry(entryId){
+  closeModal({keepHistory:true});
+  editEntry(entryId);
+}
+function editEntry(entryId){
+  const chapter = S.currentBook.chapters.find(c=>c.id===S.currentChapterId);
+  const entry = chapter ? chapter.entries.find(e=>e.id===entryId) : null;
+  if(!entry) return;
+  S.editingEntryId = entryId;
+  S.pendingPhotoDataUrl = entry.imageUrl || null;
+  S.pendingPhotoDate = entry.photoDate || null;
+  renderEntryModal(entry.text || entry.caption || '');
+}
+
 function askDeleteEntry(entryId){
   const chapter = S.currentBook.chapters.find(c=>c.id===S.currentChapterId);
   const entry = chapter ? chapter.entries.find(e=>e.id===entryId) : null;
-  const preview = entry ? (entry.type==='photo' ? (entry.caption || 'esta foto') : entry.text.slice(0,60)) : 'esta entrada';
+  const previewText = entry ? (entry.text || entry.caption || '') : '';
+  const preview = previewText ? previewText.slice(0,60) : (entry && entry.imageUrl ? 'esta foto' : 'esta entrada');
   showModal(`
     <h2>¿Eliminar esta entrada?</h2>
     <p class="delete-warn">"${esc(preview)}" se eliminará de esta página. Esta acción no se puede deshacer.</p>
@@ -1041,6 +1073,41 @@ async function addEntry(data){
   }catch(e){
     console.error(e);
     toast('No se pudo guardar. El diario podría estar lleno de fotos: prueba con otro capítulo o diario.');
+  }
+}
+
+async function updateEntry(entryId, data){
+  try{
+    const book = S.currentBook;
+    const chapter = book.chapters.find(c=>c.id===S.currentChapterId);
+    const entry = chapter.entries.find(e=>e.id===entryId);
+    if(!entry) throw new Error('entry not found');
+    const updated = {
+      id: entry.id, author: entry.author, timestamp: entry.timestamp,
+      editedAt: new Date().toISOString(), ...data
+    };
+    if(IS_FIRESTORE){
+      // Se sobreescribe el documento entero (set, no update) para que los campos
+      // quitados durante la edición (p.ej. si eliminas la foto) también desaparezcan.
+      await db.collection('books').doc(book.code).collection('chapters').doc(chapter.id)
+        .collection('entries').doc(entryId).set(updated);
+      await db.collection('books').doc(book.code).update({ updatedAt: new Date().toISOString() });
+    }
+    const idx = chapter.entries.findIndex(e=>e.id===entryId);
+    chapter.entries[idx] = updated;
+    if(!IS_FIRESTORE){
+      const ok = await saveBook(book);
+      if(!ok) throw new Error('saveBook failed');
+    }
+    S.editingEntryId = null;
+    S.pendingPhotoDataUrl = null;
+    S.pendingPhotoDate = null;
+    closeModal();
+    render();
+    toast('Entrada actualizada');
+  }catch(e){
+    console.error(e);
+    toast('No se pudo guardar el cambio. Inténtalo de nuevo.');
   }
 }
 
@@ -1244,27 +1311,34 @@ function renderChapter(){
 
   const entriesHtml = c.entries.length ? c.entries.map((e, i)=>{
     const lp = `onpointerdown="startLongPress(event,'entry','${e.id}')" onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)" onpointermove="moveLongPress(event)" oncontextmenu="return false"`;
-    if(e.type==='photo'){
-      const tilt = (i%2===0) ? '-3deg' : '2deg';
-      return `
-        <div class="entry">
-          <div class="polaroid-wrap">
-            <div class="polaroid" style="--tilt:${tilt}" ${lp}>
-              <div class="tape"></div>
-              <img src="${esc(e.imageUrl)}" alt="foto de viaje" onerror="this.style.background='var(--paper-dark)'; this.alt='(no se pudo cargar la imagen)';" />
-              ${e.caption ? `<div class="cap">${renderTextWithMentions(e.caption, b.members)}</div>` : ''}
-            </div>
-          </div>
-          <div class="polaroid-meta">${esc(e.author)} · ${fmtDate(e.timestamp)}</div>
+    const noteText = e.text || e.caption || ''; // e.caption = compatibilidad con entradas antiguas
+    const hasPhoto = !!e.imageUrl;
+    const hasText = !!noteText;
+    const tilt = (i%2===0) ? '-3deg' : '2deg';
+
+    const photoBlock = hasPhoto ? `
+      <div class="polaroid-wrap">
+        <div class="polaroid" style="--tilt:${tilt}">
+          <div class="tape"></div>
+          <img src="${esc(e.imageUrl)}" alt="foto de viaje" onerror="this.style.background='var(--paper-dark)'; this.alt='(no se pudo cargar la imagen)';" />
+          ${e.photoDate ? `<div class="cap">📅 ${fmtDate(e.photoDate)}</div>` : ''}
         </div>
-      `;
-    }
+      </div>
+    ` : '';
+    const textBlock = hasText ? `
+      <div class="anecdote-card" style="${hasPhoto ? 'margin-top:14px;' : ''}">
+        ${!hasPhoto ? `<div class="quote-mark">”</div>` : ''}
+        <p>${renderTextWithMentions(noteText, b.members)}</p>
+      </div>
+    ` : '';
+
     return `
-      <div class="entry">
-        <div class="anecdote-card" ${lp}>
-          <div class="quote-mark">”</div>
-          <p>${renderTextWithMentions(e.text, b.members)}</p>
-          <div class="entry-meta"><span>✎ ${esc(e.author)}</span><span>${fmtDate(e.timestamp)}</span></div>
+      <div class="entry" ${lp}>
+        ${photoBlock}
+        ${textBlock}
+        <div class="entry-meta" style="justify-content:center; gap:10px; border-top:none; margin-top:10px;">
+          <span>${hasPhoto ? '📷' : '✎'} ${esc(e.author)}</span>
+          <span>${fmtDate(e.timestamp)}${e.editedAt ? ' · editado' : ''}</span>
         </div>
       </div>
     `;
@@ -1292,9 +1366,10 @@ function renderChapter(){
 }
 
 function modalAddEntry(){
-  S.entryTab = 'anecdote';
+  S.editingEntryId = null;
   S.pendingPhotoDataUrl = null;
-  renderEntryModal();
+  S.pendingPhotoDate = null;
+  renderEntryModal('');
 }
 
 /* ---------------- @menciones ---------------- */
@@ -1348,65 +1423,60 @@ function hideMentionsSoon(){
   }, 150); // deja tiempo a que el mousedown de la sugerencia se registre antes del blur
 }
 
-function renderEntryModal(){
+function renderEntryModal(prefillText){
+  const isEdit = !!S.editingEntryId;
   showModal(`
-    <h2>Añadir a la página</h2>
-    <div style="display:flex; gap:8px; margin:14px 0;">
-      <button class="seg-btn ${S.entryTab==='anecdote'?'active':''}" onclick="switchEntryTab('anecdote')">✎ Anécdota</button>
-      <button class="seg-btn ${S.entryTab==='photo'?'active':''}" onclick="switchEntryTab('photo')">📷 Foto</button>
-    </div>
+    <h2>${isEdit ? 'Editar entrada' : 'Añadir a la página'}</h2>
     <div id="entryFields"></div>
     <div style="margin-top:20px;">
-      <button class="btn btn-primary" id="submitEntryBtn" onclick="submitEntry()">Pegar en el álbum</button>
+      <button class="btn btn-primary" id="submitEntryBtn" onclick="submitEntry()">${isEdit ? 'Guardar cambios' : 'Pegar en el álbum'}</button>
     </div>
   `);
-  fillEntryFields();
+  fillEntryFields(prefillText || '');
 }
-function switchEntryTab(tab){
-  S.entryTab = tab;
-  document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
-  event.target.classList.add('active');
-  fillEntryFields();
+
+function renderPhotoPreviewBlock(){
+  const today = new Date().toISOString().slice(0,10);
+  return `
+    <div class="photo-preview-box">
+      <img src="${S.pendingPhotoDataUrl}" class="photo-preview" alt="vista previa" />
+      <button type="button" class="photo-remove" onclick="clearPendingPhoto()">✕ Quitar</button>
+    </div>
+    <label class="field-label">Fecha de la foto (opcional)</label>
+    <input type="date" id="entryPhotoDate" value="${S.pendingPhotoDate || ''}" max="${today}"
+      onchange="S.pendingPhotoDate = this.value">
+  `;
 }
-function fillEntryFields(){
+
+function fillEntryFields(prefillText){
   const el = document.getElementById('entryFields');
-  if(S.entryTab==='anecdote'){
-    el.innerHTML = `
-      <label class="field-label">Tu anécdota</label>
-      <div class="mention-wrap">
-        <textarea id="entryText" rows="5" placeholder="Cuenta qué pasó, qué comisteis, quién se perdió… Escribe @ para mencionar a alguien" maxlength="1200"
-          oninput="handleMentionInput(event)" onblur="hideMentionsSoon()"></textarea>
-        <div id="mentionSuggestions" class="mention-suggestions hidden"></div>
-      </div>
-    `;
-  } else {
-    el.innerHTML = `
-      <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
-      <input type="file" id="galleryInput" accept="image/*" style="display:none" onchange="handlePhotoSelect(event)">
-      <div class="btn-row" style="margin-bottom:14px;">
-        <button type="button" class="btn btn-teal" onclick="document.getElementById('cameraInput').click()">📷 Hacer foto</button>
-        <button type="button" class="btn btn-ghost" onclick="document.getElementById('galleryInput').click()">🖼️ Galería</button>
-      </div>
-      <div id="photoPreviewWrap">
-        ${S.pendingPhotoDataUrl ? `
-          <div class="photo-preview-box">
-            <img src="${S.pendingPhotoDataUrl}" class="photo-preview" alt="vista previa" />
-            <button type="button" class="photo-remove" onclick="clearPendingPhoto()">✕ Quitar</button>
-          </div>` : ''}
-      </div>
-      <label class="field-label">Pie de foto (opcional)</label>
-      <div class="mention-wrap">
-        <input id="entryCap" placeholder="p. ej. Amanecer en el mirador, con @alguien" maxlength="80"
-          oninput="handleMentionInput(event)" onblur="hideMentionsSoon()">
-        <div id="mentionSuggestions" class="mention-suggestions hidden"></div>
-      </div>
-    `;
-  }
+  el.innerHTML = `
+    <label class="field-label">Tu anécdota ${S.pendingPhotoDataUrl ? '(opcional)' : '(o añade una foto más abajo)'}</label>
+    <div class="mention-wrap">
+      <textarea id="entryText" rows="4" placeholder="Cuenta qué pasó, qué comisteis, quién se perdió… Escribe @ para mencionar a alguien" maxlength="1200"
+        oninput="handleMentionInput(event)" onblur="hideMentionsSoon()">${esc(prefillText || '')}</textarea>
+      <div id="mentionSuggestions" class="mention-suggestions hidden"></div>
+    </div>
+
+    <label class="field-label" style="margin-top:18px;">Foto (opcional)</label>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
+    <input type="file" id="galleryInput" accept="image/*" style="display:none" onchange="handlePhotoSelect(event)">
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button type="button" class="btn btn-teal" onclick="document.getElementById('cameraInput').click()">📷 Hacer foto</button>
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('galleryInput').click()">🖼️ Galería</button>
+    </div>
+    <div id="photoPreviewWrap">
+      ${S.pendingPhotoDataUrl ? renderPhotoPreviewBlock() : ''}
+    </div>
+  `;
 }
 
 function clearPendingPhoto(){
   S.pendingPhotoDataUrl = null;
+  S.pendingPhotoDate = null;
   document.getElementById('photoPreviewWrap').innerHTML = '';
+  const label = document.querySelector('#entryFields .field-label');
+  if(label) label.textContent = 'Tu anécdota (o añade una foto más abajo)';
 }
 
 /* Lee el archivo elegido (cámara o galería), lo reduce de tamaño y calidad
@@ -1460,11 +1530,10 @@ async function handlePhotoSelect(event){
   try{
     const dataUrl = await compressImage(file);
     S.pendingPhotoDataUrl = dataUrl;
-    wrap.innerHTML = `
-      <div class="photo-preview-box">
-        <img src="${dataUrl}" class="photo-preview" alt="vista previa" />
-        <button type="button" class="photo-remove" onclick="clearPendingPhoto()">✕ Quitar</button>
-      </div>`;
+    if(!S.pendingPhotoDate) S.pendingPhotoDate = new Date().toISOString().slice(0,10);
+    wrap.innerHTML = renderPhotoPreviewBlock();
+    const label = document.querySelector('#entryFields .field-label');
+    if(label) label.textContent = 'Tu anécdota (opcional)';
   }catch(e){
     console.error(e);
     wrap.innerHTML = '';
@@ -1473,15 +1542,21 @@ async function handlePhotoSelect(event){
 }
 
 function submitEntry(){
-  if(S.entryTab==='anecdote'){
-    const text = document.getElementById('entryText').value.trim();
-    if(!text){ toast('Escribe algo antes de guardar'); return; }
-    addEntry({type:'anecdote', text});
+  const text = document.getElementById('entryText').value.trim();
+  if(!text && !S.pendingPhotoDataUrl){
+    toast('Escribe algo o añade una foto');
+    return;
+  }
+  const data = {};
+  if(text) data.text = text;
+  if(S.pendingPhotoDataUrl){
+    data.imageUrl = S.pendingPhotoDataUrl;
+    if(S.pendingPhotoDate) data.photoDate = S.pendingPhotoDate;
+  }
+  if(S.editingEntryId){
+    updateEntry(S.editingEntryId, data);
   } else {
-    if(!S.pendingPhotoDataUrl){ toast('Haz una foto o elige una de la galería'); return; }
-    const cap = document.getElementById('entryCap').value.trim();
-    addEntry({type:'photo', imageUrl:S.pendingPhotoDataUrl, caption:cap});
-    S.pendingPhotoDataUrl = null;
+    addEntry(data);
   }
 }
 
