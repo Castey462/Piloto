@@ -130,22 +130,69 @@
   .cover-card p{color:var(--ink-soft); font-size:14px; margin:4px 0 22px;}
   .cover-card input{margin-bottom:14px; text-align:center;}
 
-  /* ---- Book list ---- */
-  .book-card{
-    display:flex; gap:14px; align-items:center;
-    background:var(--paper-light); border:1px solid var(--paper-dark);
-    border-radius:2px; padding:14px; margin-bottom:14px; cursor:pointer;
-    box-shadow: 3px 3px 0 rgba(58,46,32,0.12);
+  /* ---- Book shelf (real bookshelf look) ---- */
+  .shelf-wrap{
+    background: linear-gradient(180deg, #8a6540 0%, #6e4e2e 100%);
+    border-radius: 6px;
+    padding: 18px 12px 6px;
+    margin-bottom: 4px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.25), 0 4px 10px rgba(0,0,0,0.15);
+  }
+  .shelf-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+    grid-auto-rows: 148px;
+    gap: 0 10px;
+    align-items:end;
     position:relative;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 148px,
+      #5a3d22 148px, #4a3119 156px,
+      rgba(0,0,0,0.25) 156px, rgba(0,0,0,0.25) 159px,
+      transparent 159px, transparent 175px
+    );
   }
-  .book-card:active{ transform: translate(1px,1px); }
-  .book-cover{
-    width:52px; height:66px; border-radius:2px; flex-shrink:0;
-    display:flex; align-items:center; justify-content:center; font-size:24px;
-    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25), 1px 1px 3px var(--shadow);
+  .book-spine{
+    height:136px; border-radius:4px 4px 2px 2px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    padding:10px 4px 8px; position:relative;
+    box-shadow: 1px 0 0 rgba(255,255,255,0.15) inset, -2px 0 4px rgba(0,0,0,0.25),
+      2px 6px 8px rgba(0,0,0,0.35);
+    transform: rotate(var(--tilt, 0deg));
+    transform-origin: bottom center;
+    align-self:end;
+    transition: transform .18s ease, box-shadow .18s ease;
+    animation: spineEnter .38s ease backwards;
+    animation-delay: var(--delay, 0ms);
   }
-  .book-meta h3{font-size:21px; margin-bottom:2px;}
-  .book-meta .sub{font-size:12.5px; color:var(--ink-soft); font-family:'Special Elite';}
+  .book-spine:active{ transform: rotate(0deg) translateY(-6px) scale(1.04); box-shadow: 2px 10px 14px rgba(0,0,0,0.4); }
+  .book-spine.pulling{ animation: bookPull .32s ease forwards; }
+  .book-spine .spine-icon{ font-size:15px; margin-bottom:6px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3)); }
+  .book-spine .spine-title{
+    writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+    font-family:'Caveat'; font-weight:700; font-size:16px; color:rgba(255,255,255,0.94);
+    max-height:88px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+  }
+  .book-spine .spine-band{
+    position:absolute; left:3px; right:3px; height:3px; background:rgba(255,255,255,0.35); border-radius:2px;
+  }
+  .book-spine .spine-band.top{ top:26px; }
+  .book-spine .spine-band.bottom{ bottom:10px; }
+  @keyframes spineEnter{
+    from{ opacity:0; transform: rotate(var(--tilt,0deg)) translateY(14px); }
+    to{ opacity:1; transform: rotate(var(--tilt,0deg)) translateY(0); }
+  }
+  @keyframes bookPull{
+    0%{ transform: rotate(var(--tilt,0deg)) translateY(0) scale(1); }
+    50%{ transform: rotate(0deg) translateY(-16px) scale(1.08); }
+    100%{ transform: rotate(0deg) translateY(-6px) scale(1.02); opacity:0.7; }
+  }
+  .shelf-empty{
+    grid-column: 1 / -1; text-align:center; padding:30px 16px;
+    font-family:'Caveat'; font-size:22px; color:rgba(255,255,255,0.85);
+  }
   .user-menu-wrap{ position:relative; }
   .user-dropdown{
     position:absolute; top:38px; right:0; min-width:170px;
@@ -246,15 +293,32 @@
   }
   .members-row .avatar:first-child{margin-left:0;}
 
-  /* ---- Chapter (trip) folder cards ---- */
+  /* ---- Chapter (trip) stacked-page cards ---- */
+  .chapter-stack{ position:relative; margin-bottom:22px; }
+  .chapter-stack::before, .chapter-stack::after{
+    content:""; position:absolute; left:6px; right:-6px; border-radius:2px;
+    background:var(--paper-dark); box-shadow: 1px 2px 3px rgba(58,46,32,0.15);
+  }
+  .chapter-stack::before{ bottom:-6px; height:100%; transform:rotate(-1.1deg); z-index:0; }
+  .chapter-stack::after{ bottom:-3px; height:100%; transform:rotate(0.8deg); z-index:1; background:var(--paper-light); }
   .chapter-card{
     background: var(--paper-light);
     border:1px solid var(--paper-dark);
     border-left:6px solid var(--map-teal);
-    border-radius:2px; padding:16px 16px 14px; margin-bottom:16px; cursor:pointer;
+    border-radius:2px 8px 2px 2px; padding:16px 30px 14px 16px; cursor:pointer;
     box-shadow: 3px 4px 0 rgba(58,46,32,0.10);
+    position:relative; z-index:2;
+    animation: pageStackEnter .32s ease backwards;
+    animation-delay: var(--delay, 0ms);
   }
   .chapter-card:active{transform:translate(1px,1px);}
+  .chapter-card::after{
+    /* esquina doblada, como una página de verdad */
+    content:""; position:absolute; top:0; right:0; width:0; height:0;
+    border-style:solid; border-width:0 22px 22px 0;
+    border-color: transparent var(--paper) transparent transparent;
+    filter: drop-shadow(-1px 1px 1px rgba(58,46,32,0.25));
+  }
   .chapter-top{display:flex; justify-content:space-between; align-items:flex-start;}
   .chapter-card h3{font-size:24px;}
   .chapter-card .loc{font-family:'Special Elite'; font-size:12px; color:var(--ink-soft); margin-top:2px;}
@@ -263,10 +327,26 @@
     font-family:'Special Elite'; font-size:11px; background:var(--map-teal); color:var(--paper-light);
     padding:3px 8px; border-radius:10px; white-space:nowrap;
   }
+  @keyframes pageStackEnter{
+    from{ opacity:0; transform:translateX(-10px); }
+    to{ opacity:1; transform:translateX(0); }
+  }
+
+  /* ---- Transición de "pasar página" al entrar/salir de un capítulo ---- */
+  @keyframes pageTurnOut{
+    from{ opacity:1; transform: perspective(800px) rotateY(0deg); }
+    to{ opacity:0; transform: perspective(800px) rotateY(-12deg) translateX(-16px); }
+  }
+  @keyframes pageTurnIn{
+    from{ opacity:0; transform: perspective(800px) rotateY(14deg) translateX(18px); }
+    to{ opacity:1; transform: perspective(800px) rotateY(0deg) translateX(0); }
+  }
+  #app.turning-out{ animation: pageTurnOut .22s ease forwards; transform-origin: left center; }
+  #app.turning-in{ animation: pageTurnIn .26s ease forwards; transform-origin: right center; }
 
   /* ---- Chapter view / scrapbook page ---- */
   .pressing{ opacity:0.55; transform:scale(0.97); transition: opacity .15s ease, transform .15s ease; }
-  .book-card, .chapter-card, .anecdote-card, .polaroid, .chapter-header, .entry{
+  .book-spine, .chapter-card, .anecdote-card, .polaroid, .chapter-header, .entry{
     -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action: pan-y;
   }
   .entry img{ -webkit-touch-callout:none; }
@@ -484,6 +564,10 @@ function coverColor(seed){
   let h=0; for(const ch of seed) h += ch.charCodeAt(0)*3;
   return colors[h % colors.length];
 }
+function tiltFor(seed){
+  let h=0; for(const ch of seed) h += ch.charCodeAt(0)*7;
+  return ((h % 9) - 4) + 'deg'; // entre -4deg y 4deg, distinto por diario
+}
 function initials(name){
   return (name||'?').trim().slice(0,2).toUpperCase();
 }
@@ -662,6 +746,23 @@ async function openChapter(chapterId){
   render();
   pushViewState();
 }
+/* Envuelve la navegación con un efecto de "pasar página" */
+function pageTurnTransition(navigateFn){
+  app.classList.add('turning-out');
+  setTimeout(async ()=>{
+    await navigateFn();
+    app.classList.remove('turning-out');
+    void app.offsetWidth; // reinicia la animación de entrada
+    app.classList.add('turning-in');
+    setTimeout(()=> app.classList.remove('turning-in'), 300);
+  }, 210);
+}
+function openChapterAnimated(chapterId){
+  pageTurnTransition(()=> openChapter(chapterId));
+}
+function openBookAnimated(code){
+  pageTurnTransition(()=> openBook(code));
+}
 
 window.addEventListener('popstate', (e)=>{
   // Si hay un modal abierto, el retroceso lo cierra primero (ver showModal/closeModal).
@@ -818,6 +919,12 @@ function cancelLongPress(e){
 function guardedClick(fn){
   if(longPressFired){ longPressFired = false; return; }
   fn();
+}
+/* Efecto de "sacar el libro de la estantería" antes de abrirlo */
+function pullBookAndOpen(code, el){
+  if(longPressFired){ longPressFired = false; return; }
+  el.classList.add('pulling');
+  setTimeout(()=> openBook(code), 240);
 }
 
 function askDeleteBook(code){
@@ -1233,19 +1340,24 @@ async function renderBooks(){
     </div>
     <div class="screen">
       ${(!IS_CLOUD && !IS_FIRESTORE) ? `<div class="local-note">📵 Modo local: esta copia guarda los diarios solo en este dispositivo y no se comparte con otros. Para compartirlos de verdad, configura Firebase (mira el inicio del código) o ábrela dentro de Claude.</div>` : ''}
-      ${books.length ? books.map(b=>`
-        <div class="book-card"
-          onclick="guardedClick(()=>openBook('${b.code}'))"
-          onpointerdown="startLongPress(event,'book','${b.code}')"
-          onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
-          onpointermove="moveLongPress(event)" oncontextmenu="return false">
-          <div class="book-cover" style="background:${coverColor(b.code)}">${coverFor(b.code)}</div>
-          <div class="book-meta">
-            <h3>${esc(b.title)}</h3>
-            <div class="sub">${b.chapters.length} viaje${b.chapters.length===1?'':'s'} · ${b.members.length} viajero${b.members.length===1?'':'s'}</div>
-          </div>
+      <div class="shelf-wrap">
+        <div class="shelf-grid">
+          ${books.length ? books.map((b,i)=>`
+            <div class="book-spine"
+              style="background:${coverColor(b.code)}; --tilt:${tiltFor(b.code)}; --delay:${i*45}ms;"
+              title="${esc(b.title)} · ${b.chapters.length} viaje${b.chapters.length===1?'':'s'} · ${b.members.length} viajero${b.members.length===1?'':'s'}"
+              onclick="pullBookAndOpen('${b.code}', this)"
+              onpointerdown="startLongPress(event,'book','${b.code}')"
+              onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
+              onpointermove="moveLongPress(event)" oncontextmenu="return false">
+              <div class="spine-band top"></div>
+              <div class="spine-icon">${coverFor(b.code)}</div>
+              <div class="spine-title">${esc(b.title)}</div>
+              <div class="spine-band bottom"></div>
+            </div>
+          `).join('') : `<div class="shelf-empty">Tu estantería está vacía todavía.<br>Crea tu primer diario de viaje ✎</div>`}
         </div>
-      `).join('') : `<div class="empty-note">Tu estantería está vacía todavía.<br>Crea tu primer diario de viaje ✎</div>`}
+      </div>
 
       <div class="section-title"><h2 style="font-size:18px">empezar</h2></div>
       <div class="btn-row">
@@ -1298,20 +1410,23 @@ function renderBook(){
     </div>
     <div class="screen">
       <div class="section-title"><h2>capítulos · viajes</h2></div>
-      ${b.chapters.length ? [...b.chapters].reverse().map(c=>`
-        <div class="chapter-card"
-          onclick="guardedClick(()=>openChapter('${c.id}'))"
-          onpointerdown="startLongPress(event,'chapter-list','${c.id}')"
-          onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
-          onpointermove="moveLongPress(event)" oncontextmenu="return false">
-          <div class="chapter-top">
-            <div>
-              <h3>${esc(c.title)}</h3>
-              ${c.location ? `<div class="loc">📍 ${esc(c.location)}</div>` : ''}
+      ${b.chapters.length ? [...b.chapters].reverse().map((c,i)=>`
+        <div class="chapter-stack">
+          <div class="chapter-card"
+            style="--delay:${i*55}ms;"
+            onclick="guardedClick(()=>openChapterAnimated('${c.id}'))"
+            onpointerdown="startLongPress(event,'chapter-list','${c.id}')"
+            onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
+            onpointermove="moveLongPress(event)" oncontextmenu="return false">
+            <div class="chapter-top">
+              <div>
+                <h3>${esc(c.title)}</h3>
+                ${c.location ? `<div class="loc">📍 ${esc(c.location)}</div>` : ''}
+              </div>
+              <div class="chapter-count">${c.entries.length}</div>
             </div>
-            <div class="chapter-count">${c.entries.length}</div>
+            ${(c.startDate||c.endDate) ? `<div class="dates">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
           </div>
-          ${(c.startDate||c.endDate) ? `<div class="dates">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
         </div>
       `).join('') : `<div class="empty-note">Ningún viaje registrado aún.<br>Añade el primer capítulo ✎</div>`}
     </div>
@@ -1389,7 +1504,7 @@ function renderChapter(){
 
   app.innerHTML = `
     <div class="topbar">
-      <button class="back-btn" onclick="openBook('${b.code}')">‹ ${esc(b.title)}</button>
+      <button class="back-btn" onclick="openBookAnimated('${b.code}')">‹ ${esc(b.title)}</button>
     </div>
     <div class="chapter-header"
       onpointerdown="startLongPress(event,'chapter-view','${c.id}')"
