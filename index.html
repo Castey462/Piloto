@@ -34,7 +34,7 @@
     --shadow: rgba(58, 46, 32, 0.28);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
-  html,body{margin:0; padding:0; height:100%;}
+  html,body{margin:0; padding:0; height:100%; overscroll-behavior-y: contain;}
   body{
     background:
       radial-gradient(ellipse at 20% 10%, rgba(255,255,255,0.25), transparent 60%),
@@ -344,6 +344,21 @@
   .toggle-switch.on{ background:var(--map-teal); }
   .toggle-switch.on::after{ left:23px; }
 
+  .ptr-indicator{
+    position:fixed; top:10px; left:50%; z-index:55;
+    width:38px; height:38px; border-radius:50%;
+    background:var(--paper-light); border:1px solid var(--ink-soft);
+    display:flex; align-items:center; justify-content:center; font-size:16px;
+    box-shadow:0 3px 8px var(--shadow);
+    transform:translateX(-50%) scale(0) rotate(0deg);
+    pointer-events:none;
+  }
+  .ptr-indicator.refreshing .ptr-icon{ animation: ptrSpin 0.8s linear infinite; }
+  @keyframes ptrSpin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce){
+    .ptr-indicator.refreshing .ptr-icon{ animation:none; }
+  }
+
   .update-banner{
     position:fixed; top:0; left:0; right:0; z-index:60;
     background:var(--ink); color:var(--paper-light);
@@ -613,6 +628,7 @@
   <span class="dust-mote"></span>
 </div>
 <div id="app"><div class="loading">Abriendo el cuaderno…</div></div>
+<div id="ptrIndicator" class="ptr-indicator"><span class="ptr-icon">🧭</span></div>
 <div id="toast" class="toast"></div>
 
 <script>
@@ -838,29 +854,32 @@ async function addMyBookCode(code){
 }
 
 /* ---- Firestore: carga completa de un diario (libro + capítulos + entradas) ---- */
+/* Carga el diario para el ÍNDICE: título, miembros y lista de capítulos,
+   pero SIN sus notas/fotos (eso es lo que hacía lenta la apertura del
+   diario: se descargaban todas las fotos de todos los capítulos solo para
+   mostrar el índice). Las notas de cada capítulo se piden aparte, solo
+   cuando entras en esa página en concreto (ver fbLoadChapterEntries). */
 async function fbLoadBook(code){
   try{
-    const bookSnap = await db.collection('books').doc(code).get();
+    const bookRef = db.collection('books').doc(code);
+    const [bookSnap, chaptersSnap] = await Promise.all([
+      bookRef.get(),
+      bookRef.collection('chapters').orderBy('createdAt','asc').get()
+    ]);
     if(!bookSnap.exists) return null;
     const book = bookSnap.data();
     book.code = code;
-    const chaptersSnap = await db.collection('books').doc(code)
-      .collection('chapters').orderBy('createdAt','asc').get();
-    book.chapters = [];
-    for(const chDoc of chaptersSnap.docs){
+    book.chapters = chaptersSnap.docs.map(chDoc => {
       const chapter = chDoc.data();
       chapter.id = chDoc.id;
-      const entriesSnap = await db.collection('books').doc(code)
-        .collection('chapters').doc(chDoc.id).collection('entries')
-        .orderBy('timestamp','asc').get();
-      chapter.entries = entriesSnap.docs.map(d => ({ ...d.data(), id: d.id }));
-      book.chapters.push(chapter);
-    }
+      if(!chapter.entries) chapter.entries = []; // se cargan bajo demanda
+      return chapter;
+    });
     bookCache[code] = book;
     return book;
   }catch(e){ console.error('fbLoadBook error', e); return null; }
 }
-/* ---- Firestore: versión ligera solo para la estantería (sin leer entradas) ---- */
+/* ---- Firestore: versión ligera solo para la estantería (sin leer capítulos ni entradas) ---- */
 async function fbLoadBookSummary(code){
   try{
     const snap = await db.collection('books').doc(code).get();
@@ -871,6 +890,17 @@ async function fbLoadBookSummary(code){
     return book;
   }catch(e){ console.error('fbLoadBookSummary error', e); return null; }
 }
+/* Trae las notas/fotos de UN capítulo en concreto (bajo demanda) */
+async function fbLoadChapterEntries(bookCode, chapterId){
+  try{
+    const entriesSnap = await db.collection('books').doc(bookCode)
+      .collection('chapters').doc(chapterId).collection('entries')
+      .orderBy('timestamp','asc').get();
+    return entriesSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+  }catch(e){ console.error('fbLoadChapterEntries error', e); return null; }
+}
+
+/* ---------------------------------------------------------------------- */
 
 /* ---------------- navigation ----------------
    Cada paso hacia delante queda registrado en el historial del navegador,
@@ -894,11 +924,32 @@ async function goBooks(){
   pushViewState();
 }
 async function openBook(code){
+  const cached = bookCache[code];
+  if(cached){
+    // Lo mostramos al instante con lo que ya teníamos, y refrescamos
+    // en segundo plano sin que el usuario tenga que esperar.
+    S.currentBook = cached;
+    S.currentChapterId = null;
+    S.view = 'book';
+    render();
+    pushViewState();
+    if(IS_FIRESTORE){
+      loadBook(code).then(fresh=>{
+        if(!fresh || S.view !== 'book' || !S.currentBook || S.currentBook.code !== code) return;
+        // conservamos las notas de capítulos que ya tuviéramos cargadas en memoria
+        const loadedEntries = {};
+        (S.currentBook.chapters||[]).forEach(ch=>{ if(ch.entries && ch.entries.length) loadedEntries[ch.id] = ch.entries; });
+        fresh.chapters.forEach(ch=>{ if(loadedEntries[ch.id] && (!ch.entries || !ch.entries.length)) ch.entries = loadedEntries[ch.id]; });
+        S.currentBook = fresh;
+        bookCache[code] = fresh;
+        render();
+      }).catch(()=>{});
+    }
+    return;
+  }
   S.view = 'loading'; render();
   try{
-    // En Firestore siempre releemos completo (por si otro dispositivo cambió algo);
-    // en modo local/nube-de-Claude usamos la caché si ya la teníamos.
-    const book = IS_FIRESTORE ? await loadBook(code) : (bookCache[code] || await loadBook(code));
+    const book = await loadBook(code);
     if(!book){ toast('No se encontró ese diario'); S.view='books'; render(); return; }
     S.currentBook = book;
     S.currentChapterId = null;
@@ -914,6 +965,31 @@ async function openBook(code){
 async function openChapter(chapterId){
   S.currentChapterId = chapterId;
   S.entryTab = 'anecdote';
+
+  if(IS_FIRESTORE){
+    const book = S.currentBook;
+    const chapter = book.chapters.find(c=>c.id===chapterId);
+    if(chapter && chapter.entries && chapter.entries.length > 0){
+      // Ya la habíamos visto antes: se muestra al instante y se refresca detrás.
+      S.view = 'chapter';
+      render();
+      pushViewState();
+      fbLoadChapterEntries(book.code, chapterId).then(entries=>{
+        if(entries && S.currentChapterId === chapterId){
+          chapter.entries = entries;
+          if(S.view === 'chapter') render();
+        }
+      }).catch(()=>{});
+      return;
+    }
+    // Primera vez que se abre esta página: solo pedimos SUS notas, no las
+    // de todo el diario (así se abre rápido aunque el diario tenga muchas fotos).
+    if(chapter){
+      const entries = await fbLoadChapterEntries(book.code, chapterId);
+      if(entries) chapter.entries = entries;
+    }
+  }
+
   S.view = 'chapter';
   render();
   pushViewState();
@@ -1328,6 +1404,7 @@ async function confirmDeleteEntry(entryId){
       await db.collection('books').doc(book.code).collection('chapters').doc(chapter.id)
         .update({ entryCount: firebase.firestore.FieldValue.increment(-1) });
       chapter.entries.splice(idx, 1);
+      chapter.entryCount = Math.max(0, (chapter.entryCount || 1) - 1);
     } else {
       chapter.entries.splice(idx, 1);
       const ok = await saveBook(book);
@@ -1422,7 +1499,7 @@ async function createChapter(title, location, startDate, endDate){
     const newChapter = {
       id: uid(), title, location: location.trim(),
       startDate: startDate || null, endDate: endDate || null,
-      entries: []
+      entryCount: 0, entries: []
     };
     if(IS_FIRESTORE){
       const { entries, ...chapterDoc } = newChapter;
@@ -1459,6 +1536,7 @@ async function addEntry(data){
         .update({ entryCount: firebase.firestore.FieldValue.increment(1) });
       await db.collection('books').doc(book.code).update({ updatedAt: new Date().toISOString() });
       chapter.entries.push(entry);
+      chapter.entryCount = (chapter.entryCount || 0) + 1;
       S.justWrittenEntryId = entry.text ? entry.id : null;
       closeModal();
       render();
@@ -1681,7 +1759,7 @@ function renderBook(){
               ${c.location ? `<span class="toc-loc">📍 ${esc(c.location)}</span>` : ''}
             </span>
             <span class="toc-leader"></span>
-            <span class="toc-count">${c.entries.length}</span>
+            <span class="toc-count">${c.entryCount !== undefined ? c.entryCount : c.entries.length}</span>
           </div>
         `).join('')}</div>` : `<div class="empty-note">Ningún viaje registrado aún.<br>Añade el primer capítulo ✎</div>`}
       </div>
@@ -2092,6 +2170,82 @@ function showUpdateBanner(){
 function applyUpdate(){
   if(__swReg && __swReg.waiting) __swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
   document.getElementById('updateBanner')?.remove();
+}
+
+/* ---------------- pull-to-refresh personalizado ----------------
+   Desactivamos el gesto nativo del navegador (que recargaba toda la app y
+   te devolvía a la pantalla inicial) y lo sustituimos por uno propio que
+   simplemente refresca los datos de la pantalla en la que ya estás. */
+const PTR_THRESHOLD = 68;
+let ptrStartY = 0, ptrTracking = false, ptrRefreshing = false;
+
+function ptrPointerDown(e){
+  if(ptrRefreshing) return;
+  if(window.scrollY > 0) return; // solo si estamos arriba del todo de la página
+  if(document.getElementById('modalBackdrop')) return; // no interferir con modales abiertos
+  if(!['books','book','chapter'].includes(S.view)) return;
+  ptrStartY = e.clientY;
+  ptrTracking = true;
+}
+function ptrPointerMove(e){
+  if(!ptrTracking || ptrRefreshing) return;
+  const dy = e.clientY - ptrStartY;
+  if(dy > 0 && window.scrollY === 0){
+    const progress = Math.min(1, dy / PTR_THRESHOLD);
+    const el = document.getElementById('ptrIndicator');
+    el.style.transform = `translateX(-50%) scale(${progress}) rotate(${dy*1.8}deg)`;
+  }
+}
+function ptrPointerEnd(e){
+  if(!ptrTracking) return;
+  ptrTracking = false;
+  if(ptrRefreshing) return;
+  const dy = e.clientY - ptrStartY;
+  const el = document.getElementById('ptrIndicator');
+  if(dy > PTR_THRESHOLD && window.scrollY === 0){
+    doRefreshCurrentView();
+  } else {
+    el.style.transform = 'translateX(-50%) scale(0) rotate(0deg)';
+  }
+}
+document.addEventListener('pointerdown', ptrPointerDown);
+document.addEventListener('pointermove', ptrPointerMove);
+document.addEventListener('pointerup', ptrPointerEnd);
+document.addEventListener('pointercancel', ()=>{
+  ptrTracking = false;
+  if(!ptrRefreshing) document.getElementById('ptrIndicator').style.transform = 'translateX(-50%) scale(0) rotate(0deg)';
+});
+
+async function doRefreshCurrentView(){
+  ptrRefreshing = true;
+  const el = document.getElementById('ptrIndicator');
+  el.classList.add('refreshing');
+  el.style.transform = 'translateX(-50%) scale(1) rotate(0deg)';
+  try{
+    if(S.view === 'books'){
+      await render(); // renderBooks vuelve a consultar la lista de diarios
+    } else if(S.view === 'book' && S.currentBook){
+      const fresh = await loadBook(S.currentBook.code);
+      if(fresh) S.currentBook = fresh;
+      render(); // seguimos en la vista del diario, solo se actualiza el índice
+    } else if(S.view === 'chapter' && S.currentBook){
+      const chapter = S.currentBook.chapters.find(c=>c.id===S.currentChapterId);
+      if(IS_FIRESTORE && chapter){
+        const entries = await fbLoadChapterEntries(S.currentBook.code, chapter.id);
+        if(entries){ chapter.entries = entries; chapter.entryCount = entries.length; }
+      } else {
+        const fresh = await loadBook(S.currentBook.code);
+        if(fresh) S.currentBook = fresh;
+      }
+      render(); // seguimos en la misma página del capítulo, solo se actualiza
+    }
+  }catch(e){
+    console.error(e);
+    toast('No se pudo actualizar. Inténtalo de nuevo.');
+  }
+  el.classList.remove('refreshing');
+  el.style.transform = 'translateX(-50%) scale(0) rotate(0deg)';
+  ptrRefreshing = false;
 }
 
 initServiceWorker();
