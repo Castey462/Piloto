@@ -2,7 +2,7 @@
 // index.html (o de cualquier archivo). Es lo que le dice al navegador
 // "esto ha cambiado" y activa el aviso de actualización dentro de la app.
 // Formato sugerido: fecha + contador del día, p.ej. '2026-08-24-1'.
-const APP_VERSION = '2026-08-25-1';
+const APP_VERSION = '2026-08-26-1';
 const CACHE_NAME = 'bitacora-' + APP_VERSION;
 const CORE_ASSETS = ['./', './index.html', './manifest.json'];
 

@@ -56,6 +56,36 @@
     z-index:0;
   }
   #app{position:relative; z-index:1; max-width:520px; margin:0 auto; min-height:100vh; padding-bottom:40px;}
+  /* Grano de papel/foto antigua, muy sutil, por encima de todo el contenido */
+  .grain-overlay{
+    position:fixed; inset:0; pointer-events:none; z-index:4;
+    opacity:0.05; mix-blend-mode:multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  @media (prefers-reduced-motion: reduce){
+    .grain-overlay{ opacity:0.03; }
+  }
+  .dust-motes{ position:fixed; inset:0; pointer-events:none; z-index:3; overflow:hidden; }
+  .dust-mote{
+    position:absolute; bottom:-10px; width:3px; height:3px; border-radius:50%;
+    background:radial-gradient(circle, rgba(197,164,103,0.55), transparent 70%);
+    animation: driftUp linear infinite;
+  }
+  .dust-mote:nth-child(1){ left:12%; width:4px; height:4px; animation-duration:26s; animation-delay:0s; }
+  .dust-mote:nth-child(2){ left:32%; animation-duration:34s; animation-delay:-6s; }
+  .dust-mote:nth-child(3){ left:55%; width:5px; height:5px; animation-duration:22s; animation-delay:-14s; }
+  .dust-mote:nth-child(4){ left:74%; animation-duration:30s; animation-delay:-3s; }
+  .dust-mote:nth-child(5){ left:88%; width:3px; height:3px; animation-duration:38s; animation-delay:-20s; }
+  @keyframes driftUp{
+    0%{ transform:translate(0,0); opacity:0; }
+    10%{ opacity:0.5; }
+    50%{ transform:translate(14px,-52vh); opacity:0.35; }
+    90%{ opacity:0.15; }
+    100%{ transform:translate(-10px,-104vh); opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .dust-motes{ display:none; }
+  }
 
   h1,h2,h3{font-family:'Caveat', cursive; font-weight:700; margin:0; color:var(--ink);}
   .stamp-label{font-family:'Special Elite', monospace; letter-spacing:0.06em; text-transform:uppercase; font-size:11px; color:var(--ink-soft);}
@@ -132,67 +162,155 @@
 
   /* ---- Book shelf (real bookshelf look) ---- */
   .shelf-wrap{
-    background: linear-gradient(180deg, #8a6540 0%, #6e4e2e 100%);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.10) 0%, transparent 35%),
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0px, transparent 2px, transparent 7px, rgba(0,0,0,0.035) 9px),
+      repeating-linear-gradient(89deg, rgba(255,255,255,0.03) 0px, transparent 3px, transparent 40px),
+      linear-gradient(180deg, #8a6540 0%, #6e4e2e 100%);
     border-radius: 6px;
-    padding: 18px 12px 6px;
+    padding: 20px 12px 6px;
     margin-bottom: 4px;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.25), 0 4px 10px rgba(0,0,0,0.15);
+    box-shadow: inset 0 3px 6px rgba(0,0,0,0.3), inset 0 -2px 3px rgba(255,255,255,0.06), 0 4px 10px rgba(0,0,0,0.18);
+    perspective: 700px;
   }
   .shelf-grid{
     display:grid;
     grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
     grid-auto-rows: 148px;
-    gap: 0 10px;
+    gap: 0 11px;
     align-items:end;
     position:relative;
     background-image: repeating-linear-gradient(
       to bottom,
       transparent 0px, transparent 148px,
-      #5a3d22 148px, #4a3119 156px,
-      rgba(0,0,0,0.25) 156px, rgba(0,0,0,0.25) 159px,
-      transparent 159px, transparent 175px
+      #4a3119 148px, #3c2712 157px,
+      rgba(0,0,0,0.3) 157px, rgba(0,0,0,0.3) 160px,
+      transparent 160px, transparent 176px
     );
   }
   .book-spine{
     height:136px; border-radius:4px 4px 2px 2px; cursor:pointer;
     display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
     padding:10px 4px 8px; position:relative;
+    background-image: linear-gradient(90deg, rgba(255,255,255,0.16), transparent 18%, transparent 82%, rgba(0,0,0,0.18));
     box-shadow: 1px 0 0 rgba(255,255,255,0.15) inset, -2px 0 4px rgba(0,0,0,0.25),
-      2px 6px 8px rgba(0,0,0,0.35);
-    transform: rotate(var(--tilt, 0deg));
+      3px 8px 10px rgba(0,0,0,0.4);
+    transform: perspective(700px) rotateY(var(--tiltY,0deg)) rotate(var(--tilt, 0deg));
     transform-origin: bottom center;
     align-self:end;
     transition: transform .18s ease, box-shadow .18s ease;
     animation: spineEnter .38s ease backwards;
     animation-delay: var(--delay, 0ms);
   }
-  .book-spine:active{ transform: rotate(0deg) translateY(-6px) scale(1.04); box-shadow: 2px 10px 14px rgba(0,0,0,0.4); }
+  .book-spine:active{ transform: perspective(700px) rotateY(0deg) rotate(0deg) translateY(-6px) scale(1.05); box-shadow: 2px 10px 16px rgba(0,0,0,0.45); }
   .book-spine.pulling{ animation: bookPull .32s ease forwards; }
   .book-spine .spine-icon{ font-size:15px; margin-bottom:6px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3)); }
   .book-spine .spine-title{
     writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
-    font-family:'Caveat'; font-weight:700; font-size:16px; color:rgba(255,255,255,0.94);
+    font-family:'Caveat'; font-weight:700; font-size:16px; color:#EAD08C;
     max-height:88px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+    text-shadow: 0 1px 0 rgba(0,0,0,0.55), 0 -1px 0 rgba(255,255,255,0.18);
   }
+  /* ---- Material de cuero/tela encuadernada, con marco dorado tipo gofrado ---- */
+  .leather-texture{
+    background-image:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 4px),
+      repeating-linear-gradient(-45deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 1px, transparent 1px, transparent 4px),
+      radial-gradient(ellipse at 28% 15%, rgba(255,255,255,0.14), transparent 55%),
+      radial-gradient(ellipse at 82% 92%, rgba(0,0,0,0.22), transparent 55%);
+    position:relative;
+  }
+  .leather-texture::before{
+    content:""; position:absolute; inset:5px; border:1px solid rgba(234,208,140,0.4);
+    border-radius:2px; pointer-events:none;
+  }
+  .book-cover-face.leather-texture::before{ inset:16px; border-width:2px; border-radius:4px; }
   .book-spine .spine-band{
     position:absolute; left:3px; right:3px; height:3px; background:rgba(255,255,255,0.35); border-radius:2px;
   }
   .book-spine .spine-band.top{ top:26px; }
   .book-spine .spine-band.bottom{ bottom:10px; }
   @keyframes spineEnter{
-    from{ opacity:0; transform: rotate(var(--tilt,0deg)) translateY(14px); }
-    to{ opacity:1; transform: rotate(var(--tilt,0deg)) translateY(0); }
+    from{ opacity:0; transform: perspective(700px) rotateY(var(--tiltY,0deg)) rotate(var(--tilt,0deg)) translateY(14px); }
+    to{ opacity:1; transform: perspective(700px) rotateY(var(--tiltY,0deg)) rotate(var(--tilt,0deg)) translateY(0); }
   }
   @keyframes bookPull{
-    0%{ transform: rotate(var(--tilt,0deg)) translateY(0) scale(1); }
-    50%{ transform: rotate(0deg) translateY(-16px) scale(1.08); }
-    100%{ transform: rotate(0deg) translateY(-6px) scale(1.02); opacity:0.7; }
+    0%{ transform: perspective(700px) rotateY(var(--tiltY,0deg)) rotate(var(--tilt,0deg)) translateY(0) scale(1); }
+    50%{ transform: perspective(700px) rotateY(0deg) rotate(0deg) translateY(-16px) scale(1.08); }
+    100%{ transform: perspective(700px) rotateY(0deg) rotate(0deg) translateY(-6px) scale(1.02); opacity:0.7; }
   }
   .shelf-empty{
     grid-column: 1 / -1; text-align:center; padding:30px 16px;
     font-family:'Caveat'; font-size:22px; color:rgba(255,255,255,0.85);
   }
+
+  /* ---- Apertura de la tapa del libro en 3D al abrir un diario ---- */
+  .book-cover-overlay{
+    position:fixed; inset:0; z-index:70; perspective:1400px;
+    pointer-events:none;
+  }
+  .book-cover-face{
+    position:absolute; inset:0; width:100%; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    transform-origin:left center; transform-style:preserve-3d; backface-visibility:hidden;
+    box-shadow: 10px 0 30px rgba(0,0,0,0.45);
+    transition: transform .52s cubic-bezier(.45,0,.2,1), box-shadow .52s ease;
+    background-image:
+      linear-gradient(115deg, rgba(255,255,255,0.16) 0%, transparent 30%),
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0px, transparent 2px, transparent 8px);
+  }
+  .book-cover-face .cover-icon{ font-size:56px; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4)); }
+  .book-cover-face .cover-title{
+    font-family:'Caveat'; font-weight:700; font-size:32px; color:#EAD08C;
+    text-shadow:0 2px 0 rgba(0,0,0,0.5), 0 -1px 0 rgba(255,255,255,0.2); max-width:78%; text-align:center; line-height:1.1;
+  }
+  .book-cover-face .cover-line{ width:64px; height:2px; background:rgba(255,255,255,0.55); }
+  .book-cover-face .cover-corner{
+    position:absolute; width:26px; height:26px; border:2px solid rgba(255,255,255,0.35);
+  }
+  .book-cover-face .cover-corner.tl{ top:16px; left:16px; border-right:none; border-bottom:none; }
+  .book-cover-face .cover-corner.br{ bottom:16px; right:16px; border-left:none; border-top:none; }
+  .book-cover-overlay.opening .book-cover-face{
+    transform: rotateY(-98deg);
+    box-shadow: 40px 0 50px rgba(0,0,0,0.18);
+  }
+  @media (prefers-reduced-motion: reduce){
+    .book-cover-face{ transition:none; }
+  }
+  .page-edge{
+    position:fixed; top:0; bottom:0; right:calc(50% - 260px); width:5px;
+    background: repeating-linear-gradient(to bottom,
+      rgba(58,46,32,0.16) 0px, rgba(58,46,32,0.16) 2px,
+      rgba(200,180,140,0.25) 2px, rgba(200,180,140,0.25) 3px,
+      transparent 3px, transparent 6px);
+    pointer-events:none; z-index:2; opacity:0.75;
+  }
+  @media (max-width:560px){
+    .page-edge{ right:2px; }
+  }
+  .ink-stamp{
+    position:fixed; top:38%; left:50%; z-index:65; pointer-events:none;
+    transform:translate(-50%,-50%) rotate(-9deg) scale(2.2); opacity:0;
+    font-family:'Special Elite'; font-size:24px; color:var(--stamp-red);
+    border:4px solid var(--stamp-red); padding:9px 20px; border-radius:6px;
+    text-transform:uppercase; letter-spacing:3px; background:rgba(249,241,220,0.08);
+    animation: stampThud .85s cubic-bezier(.2,1.5,.4,1) forwards;
+  }
+  @keyframes stampThud{
+    0%{ opacity:0; transform:translate(-50%,-50%) rotate(-9deg) scale(2.6); }
+    28%{ opacity:0.92; transform:translate(-50%,-50%) rotate(-9deg) scale(0.92); }
+    42%{ opacity:0.92; transform:translate(-50%,-50%) rotate(-9deg) scale(1.05); }
+    58%{ opacity:0.88; transform:translate(-50%,-50%) rotate(-9deg) scale(1); }
+    100%{ opacity:0; transform:translate(-50%,-50%) rotate(-9deg) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .ink-stamp{ display:none; }
+  }
+  .typing-cursor::after{
+    content:"▌"; color:var(--ink); opacity:0.7; animation: blinkCursor 0.85s steps(1) infinite;
+  }
+  @keyframes blinkCursor{ 50%{ opacity:0; } }
+
   .user-menu-wrap{ position:relative; }
   .user-dropdown{
     position:absolute; top:38px; right:0; min-width:170px;
@@ -358,6 +476,47 @@
   .chapter-header .loc-line{font-family:'Special Elite'; font-size:12.5px; color:var(--map-teal); margin-top:4px;}
   .chapter-header .dates-line{font-family:'Special Elite'; font-size:12px; color:var(--ink-soft); margin-top:3px;}
 
+  /* ---- Página de libro abierto: lomo/costura + índice + navegación entre páginas ---- */
+  .open-book-page{ position:relative; }
+  .page-spine-shadow{
+    position:absolute; top:0; bottom:0; left:0; width:34px; z-index:1; pointer-events:none;
+    background: linear-gradient(to right, rgba(58,46,32,0.30), rgba(58,46,32,0.10) 55%, transparent 100%);
+  }
+  .page-spine-shadow::after{
+    content:""; position:absolute; top:0; bottom:0; left:33px; width:1px; background:rgba(255,255,255,0.45);
+  }
+  .page-number{
+    font-family:'Special Elite'; font-size:10.5px; letter-spacing:2px; text-transform:uppercase;
+    color:var(--gold); margin-bottom:4px;
+  }
+  .toc-title{
+    font-family:'Special Elite'; text-align:center; letter-spacing:3px; text-transform:uppercase;
+    font-size:13px; color:var(--ink-soft); margin:6px 0 16px;
+  }
+  .toc-list{ display:flex; flex-direction:column; }
+  .toc-line{
+    display:flex; align-items:baseline; gap:8px; padding:13px 4px; cursor:pointer;
+    border-bottom:1px dashed var(--paper-dark);
+    animation: pageStackEnter .3s ease backwards; animation-delay:var(--delay,0ms);
+  }
+  .toc-line:active{ background:rgba(0,0,0,0.035); }
+  .toc-num{ font-family:'Special Elite'; font-size:12px; color:var(--gold); min-width:18px; }
+  .toc-text{ display:flex; flex-direction:column; flex:1; min-width:0; }
+  .toc-chapter-title{
+    font-family:'Caveat'; font-weight:700; font-size:21px; color:var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .toc-loc{ font-family:'Special Elite'; font-size:10.5px; color:var(--ink-soft); }
+  .toc-leader{ flex:1; border-bottom:1px dotted var(--ink-soft); margin:0 2px; align-self:center; min-width:8px; opacity:0.5; }
+  .toc-count{ font-family:'Special Elite'; font-size:12px; color:var(--map-teal); }
+  .page-flip-nav{ display:flex; justify-content:space-between; gap:10px; padding:18px 20px 8px; }
+  .page-flip-btn{
+    background:none; border:1px dashed var(--ink-soft); border-radius:20px;
+    font-family:'Special Elite'; font-size:11px; color:var(--ink-soft); padding:9px 14px; cursor:pointer;
+  }
+  .page-flip-btn:disabled{ opacity:0.25; cursor:default; }
+  .page-flip-btn:active:not(:disabled){ background:var(--paper-dark); }
+
   .entry{ margin: 22px 0; }
   .anecdote-card{
     background:var(--paper-light);
@@ -445,6 +604,14 @@
 </style>
 </head>
 <body>
+<div class="grain-overlay"></div>
+<div class="dust-motes" aria-hidden="true">
+  <span class="dust-mote"></span>
+  <span class="dust-mote"></span>
+  <span class="dust-mote"></span>
+  <span class="dust-mote"></span>
+  <span class="dust-mote"></span>
+</div>
 <div id="app"><div class="loading">Abriendo el cuaderno…</div></div>
 <div id="toast" class="toast"></div>
 
@@ -568,6 +735,10 @@ function tiltFor(seed){
   let h=0; for(const ch of seed) h += ch.charCodeAt(0)*7;
   return ((h % 9) - 4) + 'deg'; // entre -4deg y 4deg, distinto por diario
 }
+function tiltYFor(seed){
+  let h=0; for(const ch of seed) h += ch.charCodeAt(0)*11;
+  return ((h % 7) - 3) + 'deg'; // ligero ángulo 3D, como si estuviera fotografiada
+}
 function initials(name){
   return (name||'?').trim().slice(0,2).toUpperCase();
 }
@@ -584,7 +755,8 @@ let S = {
   currentBook: null,   // full book object
   currentChapterId: null,
   entryTab: 'anecdote', // 'anecdote' | 'photo'
-  menuOpen: false
+  menuOpen: false,
+  justWrittenEntryId: null // entrada recién creada/editada: se anima como escritura a mano
 };
 // Caché en memoria: una vez que creamos o abrimos un diario, lo guardamos
 // aquí para no depender de releerlo justo después de escribirlo (evita el
@@ -771,22 +943,34 @@ window.addEventListener('popstate', (e)=>{
 
   navigatingFromHistory = true;
   const st = e.state;
+  let nextView, nextBookCode, nextChapterId;
   if(!st || !st.nav){
-    S.view = S.user ? 'books' : 'login';
-    S.currentBook = null; S.currentChapterId = null;
+    nextView = S.user ? 'books' : 'login';
+    nextBookCode = null; nextChapterId = null;
   } else if(st.view === 'login' || !S.user){
-    S.view = 'login';
+    nextView = 'login'; nextBookCode = null; nextChapterId = null;
   } else if(st.view === 'chapter' && st.bookCode){
-    S.currentBook = bookCache[st.bookCode] || S.currentBook;
-    S.currentChapterId = st.chapterId;
-    S.view = 'chapter';
+    nextView = 'chapter'; nextBookCode = st.bookCode; nextChapterId = st.chapterId;
   } else if(st.view === 'book' && st.bookCode){
-    S.currentBook = bookCache[st.bookCode] || S.currentBook;
-    S.currentChapterId = null;
-    S.view = 'book';
+    nextView = 'book'; nextBookCode = st.bookCode; nextChapterId = null;
   } else {
-    S.view = 'books';
-    S.currentBook = null; S.currentChapterId = null;
+    nextView = 'books'; nextBookCode = null; nextChapterId = null;
+  }
+
+  // Si este cambio de historial no altera realmente dónde estamos (p. ej. es
+  // solo el "consumo" del paso que dejó un modal al cerrarse), no repintamos:
+  // evita un re-render redundante que interrumpiría animaciones en curso
+  // (como la del texto escribiéndose a mano).
+  const currentBookCode = S.currentBook ? S.currentBook.code : null;
+  const isSameState = nextView === S.view && nextBookCode === currentBookCode && nextChapterId === S.currentChapterId;
+  if(isSameState){ navigatingFromHistory = false; return; }
+
+  S.view = nextView;
+  S.currentChapterId = nextChapterId;
+  if(nextView === 'chapter' || nextView === 'book'){
+    S.currentBook = bookCache[nextBookCode] || S.currentBook;
+  } else {
+    S.currentBook = null;
   }
   render();
   navigatingFromHistory = false;
@@ -921,10 +1105,76 @@ function guardedClick(fn){
   fn();
 }
 /* Efecto de "sacar el libro de la estantería" antes de abrirlo */
+function prefersReducedMotion(){
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+function showStamp(text){
+  if(prefersReducedMotion()) return;
+  const el = document.createElement('div');
+  el.className = 'ink-stamp';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(()=> el.remove(), 900);
+}
+
+/* Anima el texto de una anécdota recién escrita o editada, letra a letra,
+   como si se estuviera escribiendo a mano. Al terminar, aplica el resaltado
+   de menciones (@nombre) que se había pospuesto durante la animación. */
+function typewriterReveal(elId, plainText, finalHtml, speed){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  if(prefersReducedMotion() || !plainText){ el.innerHTML = finalHtml; return; }
+  speed = speed || Math.max(10, Math.min(28, 900 / plainText.length));
+  let i = 0;
+  el.textContent = '';
+  el.classList.add('typing-cursor');
+  const timer = setInterval(()=>{
+    i++;
+    el.textContent = plainText.slice(0, i);
+    if(i >= plainText.length){
+      clearInterval(timer);
+      el.classList.remove('typing-cursor');
+      el.innerHTML = finalHtml;
+    }
+  }, speed);
+}
+
+/* Efecto de "sacar el libro de la estantería" y abrir su tapa en 3D */
 function pullBookAndOpen(code, el){
   if(longPressFired){ longPressFired = false; return; }
+  const color = getComputedStyle(el).backgroundColor;
+  const title = el.querySelector('.spine-title')?.textContent || '';
+  const icon = el.querySelector('.spine-icon')?.textContent || '📔';
+
+  if(prefersReducedMotion()){ openBook(code); return; }
+
   el.classList.add('pulling');
-  setTimeout(()=> openBook(code), 240);
+  setTimeout(()=> showBookCoverOpen(color, title, icon, ()=> openBook(code)), 220);
+}
+
+function showBookCoverOpen(color, title, icon, afterNavigate){
+  const overlay = document.createElement('div');
+  overlay.className = 'book-cover-overlay';
+  overlay.innerHTML = `
+    <div class="book-cover-face leather-texture" style="background-color:${color};">
+      <div class="cover-corner tl"></div>
+      <div class="cover-icon">${icon}</div>
+      <div class="cover-title">${esc(title)}</div>
+      <div class="cover-line"></div>
+      <div class="cover-corner br"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const face = overlay.querySelector('.book-cover-face');
+  void face.offsetWidth; // asegura que la transición se aplique al añadir 'opening'
+
+  requestAnimationFrame(async ()=>{
+    await afterNavigate(); // la vista de destino ya está lista debajo de la tapa
+    requestAnimationFrame(()=>{
+      overlay.classList.add('opening');
+      setTimeout(()=> overlay.remove(), 560);
+    });
+  });
 }
 
 function askDeleteBook(code){
@@ -1126,6 +1376,7 @@ async function createBook(title){
     render();
     pushViewState();
     toast('Diario creado. Código: '+code);
+    showStamp('¡Nuevo diario!');
   }catch(e){
     console.error(e);
     toast('No se pudo crear el diario. Inténtalo de nuevo.');
@@ -1189,6 +1440,7 @@ async function createChapter(title, location, startDate, endDate){
     }
     closeModal();
     render();
+    showStamp('¡Nueva página!');
   }catch(e){
     console.error(e);
     toast('No se pudo guardar el viaje. Inténtalo de nuevo.');
@@ -1207,10 +1459,12 @@ async function addEntry(data){
         .update({ entryCount: firebase.firestore.FieldValue.increment(1) });
       await db.collection('books').doc(book.code).update({ updatedAt: new Date().toISOString() });
       chapter.entries.push(entry);
+      S.justWrittenEntryId = entry.text ? entry.id : null;
       closeModal();
       render();
     } else {
       chapter.entries.push(entry);
+      S.justWrittenEntryId = entry.text ? entry.id : null;
       const approxSize = JSON.stringify(book).length;
       const ok = await saveBook(book);
       if(!ok) throw new Error('saveBook failed');
@@ -1252,6 +1506,7 @@ async function updateEntry(entryId, data){
     S.editingEntryId = null;
     S.pendingPhotoDataUrl = null;
     S.pendingPhotoDate = null;
+    S.justWrittenEntryId = updated.text ? updated.id : null;
     closeModal();
     render();
     toast('Entrada actualizada');
@@ -1343,8 +1598,8 @@ async function renderBooks(){
       <div class="shelf-wrap">
         <div class="shelf-grid">
           ${books.length ? books.map((b,i)=>`
-            <div class="book-spine"
-              style="background:${coverColor(b.code)}; --tilt:${tiltFor(b.code)}; --delay:${i*45}ms;"
+            <div class="book-spine leather-texture"
+              style="background-color:${coverColor(b.code)}; --tilt:${tiltFor(b.code)}; --tiltY:${tiltYFor(b.code)}; --delay:${i*45}ms;"
               title="${esc(b.title)} · ${b.chapters.length} viaje${b.chapters.length===1?'':'s'} · ${b.members.length} viajero${b.members.length===1?'':'s'}"
               onclick="pullBookAndOpen('${b.code}', this)"
               onpointerdown="startLongPress(event,'book','${b.code}')"
@@ -1396,41 +1651,43 @@ function modalJoinBook(){
 
 function renderBook(){
   const b = S.currentBook;
+  const ordered = [...b.chapters]; // orden cronológico: página 1 = primer viaje
   app.innerHTML = `
     <div class="topbar">
       <button class="back-btn" onclick="goBooks()">‹ diarios</button>
       <span class="code-chip" onclick="copyCode('${b.code}')">✎ ${b.code}</span>
     </div>
-    <div class="book-header">
-      <h1>${esc(b.title)}</h1>
-      <div class="members-row">
-        ${b.members.map(m=>`<div class="avatar" title="${esc(m)}">${initials(m)}</div>`).join('')}
-        <span class="stamp-label" style="margin-left:8px;">${b.members.length} viajero${b.members.length===1?'':'s'}</span>
+    <div class="open-book-page">
+      <div class="page-spine-shadow" aria-hidden="true"></div>
+      <div class="book-header">
+        <h1>${esc(b.title)}</h1>
+        <div class="members-row">
+          ${b.members.map(m=>`<div class="avatar" title="${esc(m)}">${initials(m)}</div>`).join('')}
+          <span class="stamp-label" style="margin-left:8px;">${b.members.length} viajero${b.members.length===1?'':'s'}</span>
+        </div>
       </div>
-    </div>
-    <div class="screen">
-      <div class="section-title"><h2>capítulos · viajes</h2></div>
-      ${b.chapters.length ? [...b.chapters].reverse().map((c,i)=>`
-        <div class="chapter-stack">
-          <div class="chapter-card"
-            style="--delay:${i*55}ms;"
+      <div class="screen">
+        <div class="toc-title">— índice —</div>
+        ${ordered.length ? `<div class="toc-list">${ordered.map((c,i)=>`
+          <div class="toc-line"
             onclick="guardedClick(()=>openChapterAnimated('${c.id}'))"
             onpointerdown="startLongPress(event,'chapter-list','${c.id}')"
             onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
-            onpointermove="moveLongPress(event)" oncontextmenu="return false">
-            <div class="chapter-top">
-              <div>
-                <h3>${esc(c.title)}</h3>
-                ${c.location ? `<div class="loc">📍 ${esc(c.location)}</div>` : ''}
-              </div>
-              <div class="chapter-count">${c.entries.length}</div>
-            </div>
-            ${(c.startDate||c.endDate) ? `<div class="dates">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
+            onpointermove="moveLongPress(event)" oncontextmenu="return false"
+            style="--delay:${i*55}ms;">
+            <span class="toc-num">${i+1}</span>
+            <span class="toc-text">
+              <span class="toc-chapter-title">${esc(c.title)}</span>
+              ${c.location ? `<span class="toc-loc">📍 ${esc(c.location)}</span>` : ''}
+            </span>
+            <span class="toc-leader"></span>
+            <span class="toc-count">${c.entries.length}</span>
           </div>
-        </div>
-      `).join('') : `<div class="empty-note">Ningún viaje registrado aún.<br>Añade el primer capítulo ✎</div>`}
+        `).join('')}</div>` : `<div class="empty-note">Ningún viaje registrado aún.<br>Añade el primer capítulo ✎</div>`}
+      </div>
     </div>
     <button class="fab" onclick="modalNewChapter()">+</button>
+    <div class="page-edge" aria-hidden="true"></div>
   `;
 }
 
@@ -1466,12 +1723,16 @@ function renderChapter(){
   const b = S.currentBook;
   const c = b.chapters.find(x=>x.id===S.currentChapterId);
   if(!c){ S.view='book'; render(); return; }
+  const chapterIdx = b.chapters.findIndex(x=>x.id===c.id); // orden cronológico = orden de páginas
+  const justWrittenId = S.justWrittenEntryId;
+  S.justWrittenEntryId = null; // se consume una sola vez
 
   const entriesHtml = c.entries.length ? c.entries.map((e, i)=>{
     const lp = `onpointerdown="startLongPress(event,'entry','${e.id}')" onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)" onpointermove="moveLongPress(event)" oncontextmenu="return false"`;
     const noteText = e.text || e.caption || ''; // e.caption = compatibilidad con entradas antiguas
     const hasPhoto = !!e.imageUrl;
     const hasText = !!noteText;
+    const isWriting = e.id === justWrittenId && hasText;
     const tilt = (i%2===0) ? '-3deg' : '2deg';
 
     const photoBlock = hasPhoto ? `
@@ -1486,7 +1747,7 @@ function renderChapter(){
     const textBlock = hasText ? `
       <div class="anecdote-card" style="${hasPhoto ? 'margin-top:14px;' : ''}">
         ${!hasPhoto ? `<div class="quote-mark">”</div>` : ''}
-        <p>${renderTextWithMentions(noteText, b.members)}</p>
+        <p ${isWriting ? `id="typing-${e.id}"` : ''}>${isWriting ? '' : renderTextWithMentions(noteText, b.members)}</p>
       </div>
     ` : '';
 
@@ -1502,25 +1763,69 @@ function renderChapter(){
     `;
   }).join('') : `<div class="empty-note" style="margin-top:30px;">Esta página está en blanco.<br>Escribe la primera anécdota ✎</div>`;
 
+  const hasPrev = chapterIdx > 0;
+  const hasNext = chapterIdx < b.chapters.length - 1;
+
   app.innerHTML = `
     <div class="topbar">
       <button class="back-btn" onclick="openBookAnimated('${b.code}')">‹ ${esc(b.title)}</button>
     </div>
-    <div class="chapter-header"
-      onpointerdown="startLongPress(event,'chapter-view','${c.id}')"
-      onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
-      onpointermove="moveLongPress(event)" oncontextmenu="return false">
-      <h1>${esc(c.title)}</h1>
-      ${c.location ? `<div class="loc-line">📍 ${esc(c.location)}</div>` : ''}
-      ${(c.startDate||c.endDate) ? `<div class="dates-line">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
-    </div>
-    <div class="screen" style="padding-bottom:110px;">
-      ${entriesHtml}
+    <div class="open-book-page">
+      <div class="page-spine-shadow" aria-hidden="true"></div>
+      <div class="chapter-header"
+        onpointerdown="startLongPress(event,'chapter-view','${c.id}'); chapterSwipeStart(event);"
+        onpointerup="cancelLongPress(event); chapterSwipeEnd(event);"
+        onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
+        onpointermove="moveLongPress(event)" oncontextmenu="return false">
+        <div class="page-number">página ${chapterIdx+1} de ${b.chapters.length}</div>
+        <h1>${esc(c.title)}</h1>
+        ${c.location ? `<div class="loc-line">📍 ${esc(c.location)}</div>` : ''}
+        ${(c.startDate||c.endDate) ? `<div class="dates-line">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
+      </div>
+      <div class="screen" style="padding-bottom:150px;">
+        ${entriesHtml}
+      </div>
+      <div class="page-flip-nav">
+        <button class="page-flip-btn" onclick="goAdjacentChapter(-1)" ${hasPrev?'':'disabled'}>‹ Página anterior</button>
+        <button class="page-flip-btn" onclick="goAdjacentChapter(1)" ${hasNext?'':'disabled'}>Página siguiente ›</button>
+      </div>
     </div>
     <div class="add-entry-bar">
       <button class="btn btn-primary" style="box-shadow:2px 2px 0 #6b2013;" onclick="modalAddEntry()">+ Añadir a esta página</button>
     </div>
+    <div class="page-edge" aria-hidden="true"></div>
   `;
+
+  if(justWrittenId){
+    const entry = c.entries.find(e=>e.id===justWrittenId);
+    if(entry){
+      const plain = entry.text || entry.caption || '';
+      typewriterReveal('typing-'+justWrittenId, plain, renderTextWithMentions(plain, b.members));
+    }
+  }
+}
+
+/* Navega a la página (capítulo) anterior/siguiente en orden cronológico,
+   como si se pasaran las hojas del mismo libro. */
+function goAdjacentChapter(direction){
+  const book = S.currentBook;
+  const idx = book.chapters.findIndex(c=>c.id===S.currentChapterId);
+  if(idx===-1) return;
+  const targetIdx = idx + direction;
+  if(targetIdx < 0 || targetIdx >= book.chapters.length) return;
+  openChapterAnimated(book.chapters[targetIdx].id);
+}
+
+/* Deslizar el dedo sobre la cabecera del capítulo pasa a la página siguiente/anterior */
+let swipeStartX = 0, swipeStartY = 0, swipeTracking = false;
+function chapterSwipeStart(e){ swipeStartX = e.clientX; swipeStartY = e.clientY; swipeTracking = true; }
+function chapterSwipeEnd(e){
+  if(!swipeTracking) return;
+  swipeTracking = false;
+  const dx = e.clientX - swipeStartX, dy = e.clientY - swipeStartY;
+  if(Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)*1.5){
+    goAdjacentChapter(dx < 0 ? 1 : -1); // deslizar a la izquierda = página siguiente
+  }
 }
 
 function modalAddEntry(){
