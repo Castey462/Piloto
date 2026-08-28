@@ -239,6 +239,15 @@
     50%{ transform: perspective(700px) rotateY(0deg) rotate(0deg) translateY(-16px) scale(1.08); }
     100%{ transform: perspective(700px) rotateY(0deg) rotate(0deg) translateY(-6px) scale(1.02); opacity:0.7; }
   }
+  .unread-dot{
+    position:absolute; top:8px; right:8px; width:11px; height:11px; border-radius:50%;
+    background:var(--stamp-red); box-shadow:0 0 0 2px rgba(255,255,255,0.65), 0 1px 2px rgba(0,0,0,0.3);
+    z-index:2; animation: unreadPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes unreadPulse{ 50%{ transform:scale(1.15); } }
+  @media (prefers-reduced-motion: reduce){
+    .unread-dot{ animation:none; }
+  }
   .shelf-empty{
     grid-column: 1 / -1; text-align:center; padding:30px 16px;
     font-family:'Caveat'; font-size:22px; color:rgba(255,255,255,0.85);
@@ -772,7 +781,8 @@ let S = {
   currentChapterId: null,
   entryTab: 'anecdote', // 'anecdote' | 'photo'
   menuOpen: false,
-  justWrittenEntryId: null // entrada recién creada/editada: se anima como escritura a mano
+  justWrittenEntryId: null, // entrada recién creada/editada: se anima como escritura a mano
+  currentEntryIndex: 0 // qué "hoja" (nota) del capítulo se muestra ahora mismo
 };
 // Caché en memoria: una vez que creamos o abrimos un diario, lo guardamos
 // aquí para no depender de releerlo justo después de escribirlo (evita el
@@ -810,6 +820,9 @@ async function init(){
     S.view = 'books';
     history.replaceState({nav:true, view:'books'}, '');
     render();
+    if(getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+      startNotifyPolling();
+    }
   } else {
     S.view = 'login';
     history.replaceState({nav:true, view:'login'}, '');
@@ -924,6 +937,7 @@ async function goBooks(){
   pushViewState();
 }
 async function openBook(code){
+  if(IS_FIRESTORE) setLastSeenBook(code, new Date().toISOString());
   const cached = bookCache[code];
   if(cached){
     // Lo mostramos al instante con lo que ya teníamos, y refrescamos
@@ -936,10 +950,11 @@ async function openBook(code){
     if(IS_FIRESTORE){
       loadBook(code).then(fresh=>{
         if(!fresh || S.view !== 'book' || !S.currentBook || S.currentBook.code !== code) return;
-        // conservamos las notas de capítulos que ya tuviéramos cargadas en memoria
-        const loadedEntries = {};
-        (S.currentBook.chapters||[]).forEach(ch=>{ if(ch.entries && ch.entries.length) loadedEntries[ch.id] = ch.entries; });
-        fresh.chapters.forEach(ch=>{ if(loadedEntries[ch.id] && (!ch.entries || !ch.entries.length)) ch.entries = loadedEntries[ch.id]; });
+        // OJO: no "conservamos" aquí las notas que ya tuviéramos en memoria de
+        // antes — si otra persona añadió o cambió algo en un capítulo mientras
+        // tanto, queremos que se note. Cada capítulo vuelve a pedir sus propias
+        // notas la próxima vez que se abra (openChapter ya se encarga de eso
+        // rápido, solo pide las de esa página).
         S.currentBook = fresh;
         bookCache[code] = fresh;
         render();
@@ -962,7 +977,8 @@ async function openBook(code){
     S.view = 'books'; render();
   }
 }
-async function openChapter(chapterId){
+async function openChapter(chapterId, opts){
+  opts = opts || {};
   S.currentChapterId = chapterId;
   S.entryTab = 'anecdote';
 
@@ -971,12 +987,14 @@ async function openChapter(chapterId){
     const chapter = book.chapters.find(c=>c.id===chapterId);
     if(chapter && chapter.entries && chapter.entries.length > 0){
       // Ya la habíamos visto antes: se muestra al instante y se refresca detrás.
+      S.currentEntryIndex = resolveEntryIndex(chapter, opts.entryIndex);
       S.view = 'chapter';
       render();
       pushViewState();
       fbLoadChapterEntries(book.code, chapterId).then(entries=>{
         if(entries && S.currentChapterId === chapterId){
           chapter.entries = entries;
+          if(S.currentEntryIndex >= entries.length) S.currentEntryIndex = Math.max(0, entries.length-1);
           if(S.view === 'chapter') render();
         }
       }).catch(()=>{});
@@ -990,9 +1008,20 @@ async function openChapter(chapterId){
     }
   }
 
+  const chapter = S.currentBook.chapters.find(c=>c.id===chapterId);
+  S.currentEntryIndex = resolveEntryIndex(chapter, opts.entryIndex);
   S.view = 'chapter';
   render();
   pushViewState();
+}
+/* Calcula en qué nota (hoja) hay que entrar: al principio, al final (-1),
+   o en un índice concreto — siempre dentro de los límites reales. */
+function resolveEntryIndex(chapter, wanted){
+  const count = chapter ? chapter.entries.length : 0;
+  if(count === 0) return 0;
+  if(wanted === 'last') return count - 1;
+  if(typeof wanted === 'number') return Math.max(0, Math.min(wanted, count - 1));
+  return 0;
 }
 /* Envuelve la navegación con un efecto de "pasar página" */
 function pageTurnTransition(navigateFn){
@@ -1070,6 +1099,9 @@ async function doLogin(name){
       if(!existing) await sset(key, {name, createdAt:new Date().toISOString()}, true);
     }
     await goBooks();
+    if(getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+      startNotifyPolling();
+    }
   }catch(e){
     console.error(e);
     toast('No se pudo iniciar sesión. Inténtalo de nuevo.');
@@ -1078,12 +1110,112 @@ async function doLogin(name){
 
 function logout(){
   closeUserMenu();
+  stopNotifyPolling();
   S.user = null;
   bookCache = {};
   clearSessionLocal();
   if(IS_CLOUD){ try{ window.storage.delete('session', false); }catch(e){} }
   S.view = 'login';
   render();
+}
+
+/* ---------------- notificaciones de novedades ----------------
+   No hay servidor propio que envíe avisos aunque el móvil esté bloqueado
+   o la app cerrada del todo (eso requeriría Firebase Cloud Functions con
+   plan de pago). Lo que sí podemos hacer, sin más infraestructura: mientras
+   la app esté abierta (aunque sea en segundo plano), comprobar cada cierto
+   tiempo si algún diario tiene contenido nuevo y avisar con una notificación
+   del sistema, además de un puntito rojo en la estantería. */
+function getNotifyPref(){
+  try{ return localStorage.getItem('bitacora_notify') === 'true'; }catch(e){ return false; }
+}
+function setNotifyPref(v){ try{ localStorage.setItem('bitacora_notify', v ? 'true' : 'false'); }catch(e){} }
+
+function getLastSeenMap(){
+  try{ return JSON.parse(localStorage.getItem('bitacora_lastseen') || '{}'); }catch(e){ return {}; }
+}
+function setLastSeenMap(map){ try{ localStorage.setItem('bitacora_lastseen', JSON.stringify(map)); }catch(e){} }
+function getLastSeenBook(code){ return getLastSeenMap()['book:'+code] || null; }
+function setLastSeenBook(code, ts){ if(!ts) return; const m=getLastSeenMap(); m['book:'+code]=ts; setLastSeenMap(m); }
+function getLastNotifiedBook(code){ return getLastSeenMap()['notified:'+code] || null; }
+function setLastNotifiedBook(code, ts){ if(!ts) return; const m=getLastSeenMap(); m['notified:'+code]=ts; setLastSeenMap(m); }
+
+async function enableNotifications(){
+  if(typeof Notification === 'undefined'){ toast('Tu navegador no admite notificaciones'); return false; }
+  if(Notification.permission === 'denied'){ toast('Tienes las notificaciones bloqueadas para esta app en el navegador'); return false; }
+  let permission = Notification.permission;
+  if(permission !== 'granted') permission = await Notification.requestPermission();
+  if(permission !== 'granted') return false;
+  setNotifyPref(true);
+  startNotifyPolling();
+  return true;
+}
+function disableNotifications(){
+  setNotifyPref(false);
+  stopNotifyPolling();
+}
+
+const NOTIFY_POLL_MS = 25000;
+let notifyPollTimer = null;
+function startNotifyPolling(){
+  if(notifyPollTimer || !IS_FIRESTORE) return;
+  checkForNewPublications();
+  notifyPollTimer = setInterval(checkForNewPublications, NOTIFY_POLL_MS);
+}
+function stopNotifyPolling(){
+  if(notifyPollTimer){ clearInterval(notifyPollTimer); notifyPollTimer = null; }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+    startNotifyPolling();
+  }
+});
+
+async function checkForNewPublications(){
+  if(!S.user || !IS_FIRESTORE || !getNotifyPref()) return;
+  if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try{
+    const codes = await myBookCodes();
+    let shelfChanged = false;
+    for(const code of codes){
+      const summary = await fbLoadBookSummary(code);
+      if(!summary || !summary.updatedAt) continue;
+      const lastSeen = getLastSeenBook(code);
+      if(!lastSeen){
+        // primera vez que vemos este diario en este dispositivo: solo anotamos
+        // la marca, sin avisar (si no, notificaría de todo el historial pasado)
+        setLastSeenBook(code, summary.updatedAt);
+        setLastNotifiedBook(code, summary.updatedAt);
+        continue;
+      }
+      if(summary.updatedAt > lastSeen){
+        // OJO: NO tocamos aquí la marca de "visto" — esa solo cambia cuando
+        // el usuario abre de verdad el diario (ver openBook). Si no, el
+        // puntito de novedad en la estantería desaparecería solo, antes de
+        // que le diera tiempo a verlo.
+        shelfChanged = true;
+        const lastNotified = getLastNotifiedBook(code);
+        const alreadyNotified = lastNotified && lastNotified >= summary.updatedAt;
+        const viewingThisBookNow = S.currentBook && S.currentBook.code === code && (S.view === 'book' || S.view === 'chapter');
+        if(!alreadyNotified && !viewingThisBookNow){
+          showNewPublicationNotice(summary.title);
+          setLastNotifiedBook(code, summary.updatedAt);
+        }
+      }
+    }
+    if(shelfChanged && S.view === 'books') render(); // refresca los puntitos de novedad
+  }catch(e){ console.error('checkForNewPublications error', e); }
+}
+function showNewPublicationNotice(bookTitle){
+  try{
+    const n = new Notification('📖 Cuaderno de Bitácora', {
+      body: `Hay contenido nuevo en "${bookTitle}"`,
+      icon: 'icon-192.png',
+      tag: 'bitacora-'+bookTitle
+    });
+    n.onclick = ()=>{ window.focus(); n.close(); };
+  }catch(e){ console.error(e); }
+  toast('📖 Nuevo en "'+bookTitle+'"');
 }
 
 /* ---------------- user menu & profile ---------------- */
@@ -1118,6 +1250,7 @@ async function showProfile(){
   }
   const codes = await myBookCodes();
   const autoUpdate = getAutoUpdatePref();
+  const notifyOn = getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted';
   showModal(`
     <div style="text-align:center; margin:6px 0 18px;">
       <div class="avatar" style="width:64px;height:64px;font-size:24px;margin:0 auto 12px;">${initials(S.user)}</div>
@@ -1132,6 +1265,15 @@ async function showProfile(){
       </div>
       <button class="toggle-switch ${autoUpdate ? 'on' : ''}" onclick="toggleAutoUpdate(this)" aria-label="Actualizar automáticamente"></button>
     </div>
+    ${IS_FIRESTORE ? `
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-title">Avisarme de novedades</div>
+        <div class="settings-row-sub">Cuando alguien añada algo, mientras la app esté abierta</div>
+      </div>
+      <button class="toggle-switch ${notifyOn ? 'on' : ''}" onclick="toggleNotifications(this)" aria-label="Avisarme de novedades"></button>
+    </div>
+    ` : ''}
     <button class="btn btn-ghost" onclick="closeModal(); logout();">Cerrar sesión</button>
   `);
 }
@@ -1140,6 +1282,19 @@ function toggleAutoUpdate(btn){
   setAutoUpdatePref(newValue);
   btn.classList.toggle('on', newValue);
   toast(newValue ? 'Se actualizará sola a partir de ahora' : 'Te avisaremos cuando haya una versión nueva');
+}
+async function toggleNotifications(btn){
+  const turningOn = !btn.classList.contains('on');
+  if(turningOn){
+    const ok = await enableNotifications();
+    if(!ok) return; // permiso denegado o no soportado: no cambiamos el interruptor
+    btn.classList.add('on');
+    toast('Te avisaremos de novedades mientras la app esté abierta');
+  } else {
+    disableNotifications();
+    btn.classList.remove('on');
+    toast('Avisos desactivados');
+  }
 }
 
 /* ---------------- pulsación larga para eliminar ----------------
@@ -1675,7 +1830,10 @@ async function renderBooks(){
       ${(!IS_CLOUD && !IS_FIRESTORE) ? `<div class="local-note">📵 Modo local: esta copia guarda los diarios solo en este dispositivo y no se comparte con otros. Para compartirlos de verdad, configura Firebase (mira el inicio del código) o ábrela dentro de Claude.</div>` : ''}
       <div class="shelf-wrap">
         <div class="shelf-grid">
-          ${books.length ? books.map((b,i)=>`
+          ${books.length ? books.map((b,i)=>{
+            const lastSeen = IS_FIRESTORE ? getLastSeenBook(b.code) : null;
+            const hasUnread = IS_FIRESTORE && lastSeen && b.updatedAt && b.updatedAt > lastSeen;
+            return `
             <div class="book-spine leather-texture"
               style="background-color:${coverColor(b.code)}; --tilt:${tiltFor(b.code)}; --tiltY:${tiltYFor(b.code)}; --delay:${i*45}ms;"
               title="${esc(b.title)} · ${b.chapters.length} viaje${b.chapters.length===1?'':'s'} · ${b.members.length} viajero${b.members.length===1?'':'s'}"
@@ -1683,12 +1841,13 @@ async function renderBooks(){
               onpointerdown="startLongPress(event,'book','${b.code}')"
               onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
               onpointermove="moveLongPress(event)" oncontextmenu="return false">
+              ${hasUnread ? '<span class="unread-dot" title="Hay novedades"></span>' : ''}
               <div class="spine-band top"></div>
               <div class="spine-icon">${coverFor(b.code)}</div>
               <div class="spine-title">${esc(b.title)}</div>
               <div class="spine-band bottom"></div>
             </div>
-          `).join('') : `<div class="shelf-empty">Tu estantería está vacía todavía.<br>Crea tu primer diario de viaje ✎</div>`}
+          `;}).join('') : `<div class="shelf-empty">Tu estantería está vacía todavía.<br>Crea tu primer diario de viaje ✎</div>`}
         </div>
       </div>
 
@@ -1805,17 +1964,23 @@ function renderChapter(){
   const justWrittenId = S.justWrittenEntryId;
   S.justWrittenEntryId = null; // se consume una sola vez
 
-  const entriesHtml = c.entries.length ? c.entries.map((e, i)=>{
-    const lp = `onpointerdown="startLongPress(event,'entry','${e.id}')" onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)" onpointermove="moveLongPress(event)" oncontextmenu="return false"`;
+  if(S.currentEntryIndex >= c.entries.length) S.currentEntryIndex = Math.max(0, c.entries.length-1);
+  const ei = S.currentEntryIndex;
+  const e = c.entries[ei] || null;
+
+  let entryHtml;
+  if(!e){
+    entryHtml = `<div class="empty-note" style="margin-top:30px;">Esta página está en blanco.<br>Escribe la primera anécdota ✎</div>`;
+  } else {
     const noteText = e.text || e.caption || ''; // e.caption = compatibilidad con entradas antiguas
     const hasPhoto = !!e.imageUrl;
     const hasText = !!noteText;
     const isWriting = e.id === justWrittenId && hasText;
-    const tilt = (i%2===0) ? '-3deg' : '2deg';
+    const lp = `onpointerdown="startLongPress(event,'entry','${e.id}'); pageSwipeStart(event);" onpointerup="cancelLongPress(event); pageSwipeEnd(event);" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)" onpointermove="moveLongPress(event)" oncontextmenu="return false"`;
 
     const photoBlock = hasPhoto ? `
       <div class="polaroid-wrap">
-        <div class="polaroid" style="--tilt:${tilt}">
+        <div class="polaroid" style="--tilt:-2deg">
           <div class="tape"></div>
           <img src="${esc(e.imageUrl)}" alt="foto de viaje" onerror="this.style.background='var(--paper-dark)'; this.alt='(no se pudo cargar la imagen)';" />
           ${e.photoDate ? `<div class="cap">📅 ${fmtDate(e.photoDate)}</div>` : ''}
@@ -1829,8 +1994,8 @@ function renderChapter(){
       </div>
     ` : '';
 
-    return `
-      <div class="entry" ${lp}>
+    entryHtml = `
+      <div class="entry entry-page" ${lp}>
         ${photoBlock}
         ${textBlock}
         <div class="entry-meta" style="justify-content:center; gap:10px; border-top:none; margin-top:10px;">
@@ -1839,10 +2004,12 @@ function renderChapter(){
         </div>
       </div>
     `;
-  }).join('') : `<div class="empty-note" style="margin-top:30px;">Esta página está en blanco.<br>Escribe la primera anécdota ✎</div>`;
+  }
 
-  const hasPrev = chapterIdx > 0;
-  const hasNext = chapterIdx < b.chapters.length - 1;
+  const hasPrevEntry = c.entries.length > 0 && (ei > 0 || chapterIdx > 0);
+  const hasNextEntry = c.entries.length > 0 ? (ei < c.entries.length-1 || chapterIdx < b.chapters.length-1) : (chapterIdx < b.chapters.length-1);
+  const hasPrevFromEmpty = c.entries.length === 0 && chapterIdx > 0;
+  const canGoPrev = c.entries.length ? hasPrevEntry : hasPrevFromEmpty;
 
   app.innerHTML = `
     <div class="topbar">
@@ -1851,21 +2018,20 @@ function renderChapter(){
     <div class="open-book-page">
       <div class="page-spine-shadow" aria-hidden="true"></div>
       <div class="chapter-header"
-        onpointerdown="startLongPress(event,'chapter-view','${c.id}'); chapterSwipeStart(event);"
-        onpointerup="cancelLongPress(event); chapterSwipeEnd(event);"
-        onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
+        onpointerdown="startLongPress(event,'chapter-view','${c.id}')"
+        onpointerup="cancelLongPress(event)" onpointerleave="cancelLongPress(event)" onpointercancel="cancelLongPress(event)"
         onpointermove="moveLongPress(event)" oncontextmenu="return false">
-        <div class="page-number">página ${chapterIdx+1} de ${b.chapters.length}</div>
+        <div class="page-number">capítulo ${chapterIdx+1}/${b.chapters.length} · hoja ${c.entries.length ? (ei+1)+'/'+c.entries.length : '—'}</div>
         <h1>${esc(c.title)}</h1>
         ${c.location ? `<div class="loc-line">📍 ${esc(c.location)}</div>` : ''}
         ${(c.startDate||c.endDate) ? `<div class="dates-line">${fmtDate(c.startDate)}${c.endDate? ' — '+fmtDate(c.endDate):''}</div>` : ''}
       </div>
-      <div class="screen" style="padding-bottom:150px;">
-        ${entriesHtml}
+      <div class="screen" style="padding-bottom:150px;" onpointerdown="pageSwipeStart(event)" onpointerup="pageSwipeEnd(event)">
+        ${entryHtml}
       </div>
       <div class="page-flip-nav">
-        <button class="page-flip-btn" onclick="goAdjacentChapter(-1)" ${hasPrev?'':'disabled'}>‹ Página anterior</button>
-        <button class="page-flip-btn" onclick="goAdjacentChapter(1)" ${hasNext?'':'disabled'}>Página siguiente ›</button>
+        <button class="page-flip-btn" onclick="turnPage(-1)" ${canGoPrev?'':'disabled'}>‹ Pasar hoja</button>
+        <button class="page-flip-btn" onclick="turnPage(1)" ${hasNextEntry?'':'disabled'}>Pasar hoja ›</button>
       </div>
     </div>
     <div class="add-entry-bar">
@@ -1874,35 +2040,49 @@ function renderChapter(){
     <div class="page-edge" aria-hidden="true"></div>
   `;
 
-  if(justWrittenId){
-    const entry = c.entries.find(e=>e.id===justWrittenId);
-    if(entry){
-      const plain = entry.text || entry.caption || '';
-      typewriterReveal('typing-'+justWrittenId, plain, renderTextWithMentions(plain, b.members));
-    }
+  if(justWrittenId && e && e.id === justWrittenId){
+    const plain = e.text || e.caption || '';
+    typewriterReveal('typing-'+justWrittenId, plain, renderTextWithMentions(plain, b.members));
   }
 }
 
-/* Navega a la página (capítulo) anterior/siguiente en orden cronológico,
-   como si se pasaran las hojas del mismo libro. */
-function goAdjacentChapter(direction){
+/* Pasa a la hoja (nota) anterior/siguiente. Si ya no quedan más hojas en
+   este capítulo, cruza al capítulo siguiente/anterior (a su primera o
+   última hoja, según el sentido), como si fuera el mismo libro. */
+function turnPage(direction){
   const book = S.currentBook;
-  const idx = book.chapters.findIndex(c=>c.id===S.currentChapterId);
-  if(idx===-1) return;
-  const targetIdx = idx + direction;
-  if(targetIdx < 0 || targetIdx >= book.chapters.length) return;
-  openChapterAnimated(book.chapters[targetIdx].id);
+  const chapter = book.chapters.find(c=>c.id===S.currentChapterId);
+  if(!chapter) return;
+  const newIdx = S.currentEntryIndex + direction;
+
+  if(chapter.entries.length > 0 && newIdx >= 0 && newIdx < chapter.entries.length){
+    // seguimos dentro del mismo capítulo: no hace falta cargar nada nuevo
+    pageTurnTransition(()=>{
+      S.currentEntryIndex = newIdx;
+      S.view = 'chapter';
+      render();
+      return Promise.resolve();
+    });
+    return;
+  }
+
+  const chapterIdx = book.chapters.findIndex(c=>c.id===chapter.id);
+  const targetIdx = chapterIdx + direction;
+  if(targetIdx < 0 || targetIdx >= book.chapters.length) return; // no hay más hojas en el diario
+  const targetChapter = book.chapters[targetIdx];
+  const targetEntryIndex = direction > 0 ? 0 : 'last';
+  pageTurnTransition(()=> openChapter(targetChapter.id, { entryIndex: targetEntryIndex }));
 }
 
-/* Deslizar el dedo sobre la cabecera del capítulo pasa a la página siguiente/anterior */
+/* Deslizar el dedo sobre la página pasa de hoja (y de capítulo si hace falta) */
 let swipeStartX = 0, swipeStartY = 0, swipeTracking = false;
-function chapterSwipeStart(e){ swipeStartX = e.clientX; swipeStartY = e.clientY; swipeTracking = true; }
-function chapterSwipeEnd(e){
+function pageSwipeStart(e){ swipeStartX = e.clientX; swipeStartY = e.clientY; swipeTracking = true; }
+function pageSwipeEnd(e){
   if(!swipeTracking) return;
   swipeTracking = false;
   const dx = e.clientX - swipeStartX, dy = e.clientY - swipeStartY;
   if(Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)*1.5){
-    goAdjacentChapter(dx < 0 ? 1 : -1); // deslizar a la izquierda = página siguiente
+    turnPage(dx < 0 ? 1 : -1); // deslizar a la izquierda = hoja siguiente
   }
 }
 
