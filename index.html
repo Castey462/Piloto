@@ -1165,10 +1165,9 @@ function showBlockedScreen(name){
   app.innerHTML = `
     <div class="login-wrap">
       <div class="cover-card">
-        <div class="stamp-label">— acceso denegado —</div>
-        <h1>Cuaderno<br>cerrado</h1>
-        <p>Un administrador ha bloqueado el acceso de "${esc(name)}" a esta app.<br>Si crees que es un error, contacta con quien lleva el diario.</p>
-        <button class="btn btn-ghost" onclick="S.view='login'; render();">Probar con otro nombre</button>
+        <div class="stamp-label">— aviso —</div>
+        <h1>Aplicación<br>fuera de uso</h1>
+        <p>Esta aplicación ya no está en uso.<br>Si crees que es un error, contacta con quien lleva el diario.</p>
       </div>
     </div>
   `;
