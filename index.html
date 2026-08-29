@@ -493,6 +493,13 @@
   }
   .entry img{ -webkit-touch-callout:none; }
   .delete-warn{ font-family:'Lora'; color:var(--ink-soft); font-size:14.5px; line-height:1.55; margin:12px 0 22px; }
+  .admin-user-list{ max-height:50vh; overflow-y:auto; }
+  .admin-user-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 2px; border-bottom:1px dashed var(--paper-dark);
+  }
+  .admin-user-name{ font-family:'Caveat'; font-weight:700; font-size:19px; color:var(--ink); }
+  .admin-user-sub{ font-family:'Special Elite'; font-size:10.5px; color:var(--ink-soft); margin-top:2px; }
   .delete-btn{ background:var(--stamp-red); color:var(--paper-light); border-color:var(--stamp-red); box-shadow:2px 2px 0 #6b2013; }
   .delete-btn:active{ box-shadow:0 0 0 #6b2013; }
   .chapter-header{padding:16px 20px 6px;}
@@ -782,7 +789,8 @@ let S = {
   entryTab: 'anecdote', // 'anecdote' | 'photo'
   menuOpen: false,
   justWrittenEntryId: null, // entrada recién creada/editada: se anima como escritura a mano
-  currentEntryIndex: 0 // qué "hoja" (nota) del capítulo se muestra ahora mismo
+  currentEntryIndex: 0, // qué "hoja" (nota) del capítulo se muestra ahora mismo
+  isAdmin: false // se rellena tras iniciar sesión, si tu usuario tiene isAdmin:true en Firestore
 };
 // Caché en memoria: una vez que creamos o abrimos un diario, lo guardamos
 // aquí para no depender de releerlo justo después de escribirlo (evita el
@@ -817,6 +825,10 @@ async function init(){
   if(name){
     S.user = name;
     saveSessionLocal(name); // asegura que quede en ambos sitios
+    if(IS_FIRESTORE){
+      const blocked = await checkIfBlocked(name);
+      if(blocked) return; // checkIfBlocked ya deja la pantalla de bloqueo montada
+    }
     S.view = 'books';
     history.replaceState({nav:true, view:'books'}, '');
     render();
@@ -1086,18 +1098,28 @@ async function doLogin(name){
   name = name.trim();
   if(!name){ toast('Escribe un nombre'); return; }
   try{
-    S.user = name;
     saveSessionLocal(name);
     if(IS_FIRESTORE){
       const ref = db.collection('users').doc(name.toLowerCase());
       const snap = await ref.get();
-      if(!snap.exists) await ref.set({ name, createdAt: new Date().toISOString() });
+      if(!snap.exists){
+        await ref.set({ name, createdAt: new Date().toISOString(), isAdmin:false, blocked:false });
+        S.isAdmin = false;
+      } else {
+        const profile = snap.data();
+        if(profile.blocked){
+          showBlockedScreen(name);
+          return;
+        }
+        S.isAdmin = !!profile.isAdmin;
+      }
     } else {
       if(IS_CLOUD) sset('session', {name}, false); // respaldo, no bloqueante
       const key = 'user:'+name.toLowerCase();
       const existing = await sget(key, true);
       if(!existing) await sset(key, {name, createdAt:new Date().toISOString()}, true);
     }
+    S.user = name;
     await goBooks();
     if(getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
       startNotifyPolling();
@@ -1108,10 +1130,88 @@ async function doLogin(name){
   }
 }
 
+/* ---------------- administración (bloqueo de usuarios) ----------------
+   No hay contraseñas reales en la app (el "login" es solo escribir un
+   nombre), así que esto no es un sistema de seguridad a prueba de balas:
+   es una barrera honesta pensada para un grupo de confianza (familia,
+   amigos), igual que el resto de la app. Para que alguien sea administrador,
+   hay que entrar a la consola de Firebase → Firestore → colección "users" →
+   su documento → añadir el campo isAdmin (booleano) = true, a mano, una vez. */
+async function checkIfBlocked(name){
+  try{
+    const snap = await db.collection('users').doc(name.toLowerCase()).get();
+    if(snap.exists){
+      const profile = snap.data();
+      if(profile.blocked){
+        showBlockedScreen(name);
+        return true;
+      }
+      S.isAdmin = !!profile.isAdmin;
+    }
+  }catch(e){ console.error('checkIfBlocked error', e); }
+  return false;
+}
+function showBlockedScreen(name){
+  S.user = null;
+  S.view = 'blocked';
+  clearSessionLocal();
+  app.innerHTML = `
+    <div class="login-wrap">
+      <div class="cover-card">
+        <div class="stamp-label">— acceso denegado —</div>
+        <h1>Cuaderno<br>cerrado</h1>
+        <p>Un administrador ha bloqueado el acceso de "${esc(name)}" a esta app.<br>Si crees que es un error, contacta con quien lleva el diario.</p>
+        <button class="btn btn-ghost" onclick="S.view='login'; render();">Probar con otro nombre</button>
+      </div>
+    </div>
+  `;
+}
+
+async function showAdminPanel(){
+  closeUserMenu();
+  if(!IS_FIRESTORE || !S.isAdmin) return;
+  try{
+    const snap = await db.collection('users').get();
+    const users = snap.docs.map(d=>({ id:d.id, ...d.data() }))
+      .sort((a,b)=> (a.name||a.id).localeCompare(b.name||b.id));
+    showModal(`
+      <h2>Administración</h2>
+      <div class="stamp-label" style="margin-bottom:14px;">Bloquea o desbloquea el acceso de usuarios registrados</div>
+      <div class="admin-user-list">
+        ${users.map(u=>`
+          <div class="admin-user-row">
+            <div>
+              <div class="admin-user-name">${esc(u.name || u.id)}${u.isAdmin ? ' 🛡️' : ''}</div>
+              <div class="admin-user-sub">${u.blocked ? '🚫 Bloqueado' : 'Con acceso'}</div>
+            </div>
+            ${u.id === S.user.toLowerCase()
+              ? '<span class="stamp-label">(tú)</span>'
+              : `<button class="btn ${u.blocked ? 'btn-teal' : 'delete-btn'}" style="padding:8px 14px; font-size:11px;" onclick="toggleUserBlocked('${u.id}', ${!u.blocked})">${u.blocked ? 'Desbloquear' : 'Bloquear'}</button>`}
+          </div>
+        `).join('')}
+      </div>
+    `);
+  }catch(e){
+    console.error(e);
+    toast('No se pudo cargar la lista de usuarios.');
+  }
+}
+async function toggleUserBlocked(userId, block){
+  try{
+    await db.collection('users').doc(userId).update({ blocked: block });
+    toast(block ? 'Usuario bloqueado' : 'Usuario desbloqueado');
+    showAdminPanel(); // refresca la lista dentro del mismo modal
+  }catch(e){
+    console.error(e);
+    toast('No se pudo actualizar. Inténtalo de nuevo.');
+  }
+}
+
 function logout(){
   closeUserMenu();
   stopNotifyPolling();
   S.user = null;
+  S.isAdmin = false;
   bookCache = {};
   clearSessionLocal();
   if(IS_CLOUD){ try{ window.storage.delete('session', false); }catch(e){} }
@@ -1780,6 +1880,7 @@ function closeModal(opts={}){
 /* ---------------- render ---------------- */
 function render(){
   if(S.view==='loading'){ app.innerHTML = `<div class="loading">Pasando página…</div>`; return; }
+  if(S.view==='blocked') return; // ya pintado por showBlockedScreen, nada que repintar
   if(S.view==='login') return renderLogin();
   if(S.view==='books') return renderBooks();
   if(S.view==='book') return renderBook();
@@ -1822,6 +1923,7 @@ async function renderBooks(){
         <button class="icon-btn menu-trigger" onclick="toggleUserMenu(event)">⋮</button>
         <div id="userMenu" class="user-dropdown hidden">
           <button onclick="showProfile()">👤 Perfil</button>
+          ${S.isAdmin ? '<button onclick="showAdminPanel()">🛡️ Administración</button>' : ''}
           <button onclick="logout()">🚪 Cerrar sesión</button>
         </div>
       </div>
