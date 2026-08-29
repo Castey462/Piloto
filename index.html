@@ -1098,7 +1098,7 @@ async function doLogin(name){
   name = name.trim();
   if(!name){ toast('Escribe un nombre'); return; }
   try{
-    saveSessionLocal(name);
+    let canonicalName = name; // el nombre "de verdad", con la mayúscula/minúscula de tu primer registro
     if(IS_FIRESTORE){
       const ref = db.collection('users').doc(name.toLowerCase());
       const snap = await ref.get();
@@ -1112,14 +1112,17 @@ async function doLogin(name){
           return;
         }
         S.isAdmin = !!profile.isAdmin;
+        if(profile.name) canonicalName = profile.name; // así "david" y "David" son siempre la misma persona
       }
     } else {
       if(IS_CLOUD) sset('session', {name}, false); // respaldo, no bloqueante
       const key = 'user:'+name.toLowerCase();
       const existing = await sget(key, true);
       if(!existing) await sset(key, {name, createdAt:new Date().toISOString()}, true);
+      else if(existing.name) canonicalName = existing.name;
     }
-    S.user = name;
+    S.user = canonicalName;
+    saveSessionLocal(canonicalName);
     await goBooks();
     if(getNotifyPref() && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
       startNotifyPolling();
@@ -1147,6 +1150,10 @@ async function checkIfBlocked(name){
         return true;
       }
       S.isAdmin = !!profile.isAdmin;
+      if(profile.name && profile.name !== S.user){
+        S.user = profile.name; // corrige la mayúscula/minúscula al valor canónico
+        saveSessionLocal(profile.name);
+      }
     }
   }catch(e){ console.error('checkIfBlocked error', e); }
   return false;
